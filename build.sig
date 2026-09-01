@@ -3,6 +3,23 @@ const builtin = @import("builtin");
 
 fn noop(ctx: *sig_build.Step_Context) sig_build.SigError!void { _ = ctx; }
 
+// zpm is a path dependency (see build.sig.zon). Consume its reusable modules
+// directly by source path — general capability lives in zpm, not here.
+const ZPM = "../../Lib/zpm/";
+
+fn importEntry(name: []const u8, path: []const u8) sig_build.Import_Entry {
+    var entry: sig_build.Import_Entry = .{};
+    @memcpy(entry.name[0..name.len], name);
+    entry.name_len = name.len;
+    @memcpy(entry.path[0..path.len], path);
+    entry.path_len = path.len;
+    return entry;
+}
+
+fn wire(ctx: *sig_build.Build_Context, module: sig_build.Module_Handle, name: []const u8, path: []const u8) !void {
+    try ctx.addImport(module, name, path);
+}
+
 fn runApp(ctx: *sig_build.Step_Context) sig_build.SigError!void {
     const build_ctx = ctx.build_ctx;
     const prefix = build_ctx.install_prefix[0..build_ctx.install_prefix_len];
@@ -23,20 +40,40 @@ fn runApp(ctx: *sig_build.Step_Context) sig_build.SigError!void {
 }
 
 pub fn build(ctx: *sig_build.Build_Context) !void {
+    const win32_path = if (builtin.os.tag == .windows)
+        ZPM ++ "src/platform/win32.sig"
+    else
+        ZPM ++ "src/transport/linux_platform.sig";
+
+    // Register the zpm modules we consume and wire their own imports so the
+    // flat module registry resolves nested `@import("win32")` inside screencap.
+    //   main -> slicker -> { screencap -> win32, ui_detect }
+    _ = try ctx.addModule("win32", win32_path);
+    _ = try ctx.addModule("ui_detect", ZPM ++ "src/core/ui_detect.sig");
+    const screencap = try ctx.addModule("screencap", ZPM ++ "src/platform/screencap.sig");
+    try wire(ctx, screencap, "win32", win32_path);
+
+    const app_imports = [_]sig_build.Import_Entry{
+        importEntry("screencap", ZPM ++ "src/platform/screencap.sig"),
+        importEntry("ui_detect", ZPM ++ "src/core/ui_detect.sig"),
+        importEntry("win32", win32_path),
+    };
+
     const executable = try ctx.addCompileStep(.{
         .source_path = "src/main.sig",
         .output_name = "stools",
         .cache_dir = ctx.cache_dir[0..ctx.cache_dir_len],
         .optimize = ctx.optimize,
         .target = null,
-        .imports = &.{},
+        .imports = &app_imports,
         .compiler_path = "",
     });
     const install = try ctx.addStep("install", "Build the native application", &noop);
     try ctx.addDependency(install, executable);
     const run = try ctx.addStep("run", "Build and run the native application", &runApp);
     try ctx.addDependency(run, executable);
+
     const test_all = try ctx.addStep("test", "Run the project tests", &noop);
-    const tests = try ctx.addTestStep(.{ .name = "test-source", .source_path = "src/main.sig", .imports = &.{} });
+    const tests = try ctx.addTestStep(.{ .name = "test-source", .source_path = "src/main.sig", .imports = &app_imports });
     try ctx.addDependency(test_all, tests);
 }

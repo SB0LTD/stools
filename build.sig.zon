@@ -1,8 +1,10 @@
 .{
-    .name = .@"stools",
+    .name = .stools,
     .version = "0.0.1",
     .fingerprint = 0x57001bad5100d5b0,
-    .dependencies = .{},
+    .dependencies = .{
+        .zpm = .{ .path = "../../Lib/zpm" },
+    },
     .paths = .{
         "build.sig",
         "build.sig.zon",

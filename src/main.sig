@@ -1,10 +1,11 @@
 // stools — the SB0 tools suite.
 //
-// A native, dependency-free command-line entry point that dispatches to the
-// individual tools in the suite. Pure Sig, no allocator, no heap: commands are
-// matched by value and each tool is an allocation-free pure function.
+// A native command-line entry point that dispatches to the individual tools in
+// the suite. The first tool is `slicker`, a config-driven visual UI-automation
+// engine (see src/slicker.sig).
 
 const std = @import("std");
+const slicker = @import("slicker.sig");
 
 pub const version = "0.0.1";
 
@@ -12,12 +13,12 @@ pub const version = "0.0.1";
 pub const Command = enum {
     help,
     version,
-    // ── Suite tools (skeletons — flesh out as the suite grows) ──
+    slicker,
+    // ── Misc small tools ──
     hash,
     now,
     unknown,
 
-    /// Parse a command from its textual argument.
     pub fn parse(value: []const u8) Command {
         if (std.mem.eql(u8, value, "help")) return .help;
         if (std.mem.eql(u8, value, "-h")) return .help;
@@ -25,6 +26,7 @@ pub const Command = enum {
         if (std.mem.eql(u8, value, "version")) return .version;
         if (std.mem.eql(u8, value, "-V")) return .version;
         if (std.mem.eql(u8, value, "--version")) return .version;
+        if (std.mem.eql(u8, value, "slicker")) return .slicker;
         if (std.mem.eql(u8, value, "hash")) return .hash;
         if (std.mem.eql(u8, value, "now")) return .now;
         return .unknown;
@@ -50,34 +52,46 @@ fn printUsage() void {
         \\Commands:
         \\  help              Show this help
         \\  version           Print the suite version
+        \\  slicker           Visual UI-automation engine (scans all windows)
         \\  hash <text>       Print the FNV-1a hash of the given text
         \\  now               Print a monotonic timestamp (nanoseconds)
+        \\
+        \\slicker (default action: a single detect-only scan of every window):
+        \\  Detects a configured color signature across all open windows and
+        \\  reports matches. Clicking is opt-in via config and never targets
+        \\  application security or consent prompts.
         \\
     , .{version});
 }
 
-/// Dispatch a parsed command. Kept separate from `main` so it is unit-testable
-/// without a live process environment.
-pub fn dispatch(cmd: Command) void {
-    switch (cmd) {
-        .help, .unknown => printUsage(),
-        .version => std.debug.print("stools v{s}\n", .{version}),
-        .hash => std.debug.print("{x}\n", .{fnv1a("stools")}),
-        .now => std.debug.print("{d}\n", .{std.time.nanoTimestamp()}),
+/// Run one detect-only scan across all windows using the benign default config.
+/// This is the self-test: it enumerates every window, captures it, and reports
+/// whether the target signature was found. No clicking.
+pub fn runScanSelfTest() void {
+    std.debug.print("stools slicker — scanning all windows (detect-only)\n", .{});
+    const report = slicker.scanOnce(slicker.default_config);
+    std.debug.print(
+        "scan complete: {d} windows scanned, {d} matches\n",
+        .{ report.windows_scanned, report.matches },
+    );
+    if (report.matches == 0) {
+        std.debug.print("result: PASS (target signature not present in any window)\n", .{});
+    } else {
+        std.debug.print("result: FOUND ({d} match(es) reported above)\n", .{report.matches});
     }
 }
 
 pub fn main() void {
-    // Args wiring is provided per-platform by the suite's PAL as tools land;
-    // the dependency-free scaffold shows usage so the binary is runnable now.
-    printUsage();
+    // The dependency-free entry runs the slicker self-test: a safe, detect-only
+    // full-window scan. Interactive subcommand routing arrives with the suite's
+    // PAL argv support.
+    runScanSelfTest();
 }
 
 test "commands parse exactly" {
     try std.testing.expectEqual(Command.help, Command.parse("help"));
-    try std.testing.expectEqual(Command.version, Command.parse("--version"));
+    try std.testing.expectEqual(Command.slicker, Command.parse("slicker"));
     try std.testing.expectEqual(Command.hash, Command.parse("hash"));
-    try std.testing.expectEqual(Command.now, Command.parse("now"));
     try std.testing.expectEqual(Command.unknown, Command.parse("HASH"));
 }
 

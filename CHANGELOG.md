@@ -5,6 +5,16 @@ All notable changes to **stools** are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+- `slicker`: a general, config-driven visual UI-automation engine. Enumerates
+  all open windows, captures each, detects a configured color signature via the
+  zpm `ui_detect` engine, and (opt-in) clicks the match and re-captures to
+  verify. Ships with a benign detect-only default config; the default action is
+  a full-window scan self-test (`stools` with no args). Depends on zpm's
+  `screencap` and `ui_detect` modules via a path dependency.
+
 ## [0.0.1] - 2026-09-01
 
 ### Added
