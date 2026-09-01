@@ -1,0 +1,15 @@
+.{
+    .name = .@"stools",
+    .version = "0.0.1",
+    .fingerprint = 0x57001bad5100d5b0,
+    .dependencies = .{},
+    .paths = .{
+        "build.sig",
+        "build.sig.zon",
+        "src",
+        "README.md",
+        "CHANGELOG.md",
+        "LICENSE",
+        "logo.png",
+    },
+}

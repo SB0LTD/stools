@@ -1,0 +1,4 @@
+.build/
+.sig-cache/
+sig-out/
+config.json
