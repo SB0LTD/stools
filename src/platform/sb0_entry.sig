@@ -25,6 +25,10 @@ extern const __stack_top: u8;
 const MAX_WINDOWS = 64;
 var windows: screencap.WindowList(MAX_WINDOWS) = .{};
 
+// Capture staging buffer (BSS). Sized for a 1080p scanout (1920x1080 RGBA).
+const CAPTURE_BYTES = 1920 * 1080 * 4;
+var capture_buf: [CAPTURE_BYTES]u8 = undefined;
+
 export fn _start() callconv(.naked) noreturn {
     asm volatile (
         \\ adrp x0, __stack_top
@@ -52,10 +56,19 @@ export fn sb0Main() callconv(.c) noreturn {
 
     const n = screencap.enumerate(MAX_WINDOWS, &windows, .{ .visible_only = true });
 
-    // With a real capture backend this loop would capture + detect per surface;
-    // today the SB0 backend enumerates nothing, so there are no matches.
-    const matches: usize = 0;
-    _ = params; // capture buffer wiring lands with the Nexus capture op.
+    // Capture each enumerated surface via the Nexus compositor and detect. On
+    // SB0 the whole scanout is exposed as one capturable surface.
+    var matches: usize = 0;
+    var idx: usize = 0;
+    while (idx < n) : (idx += 1) {
+        const win = windows.items[idx];
+        const need = @as(usize, @intCast(win.width)) * @as(usize, @intCast(win.height)) * 4;
+        if (win.width <= 0 or win.height <= 0 or need > capture_buf.len) continue;
+        const cap = screencap.captureWindow(win, capture_buf[0..]);
+        if (!cap.ok) continue;
+        const m = ui_detect.detect(cap.pixels, cap.width, cap.height, params);
+        if (m.found) matches += 1;
+    }
 
     uart.write("scan complete: ");
     writeUint(n);
@@ -67,9 +80,6 @@ export fn sb0Main() callconv(.c) noreturn {
         uart.write("result: PASS (target signature not present)\r\n");
     } else {
         uart.write("result: FOUND\r\n");
-    }
-    if (!screencap.supported) {
-        uart.write("note: SB0 capture backend not yet wired (Nexus needs capture/enumerate ops)\r\n");
     }
 
     uart.write("STOOLS-SB0-EXIT\r\n");
