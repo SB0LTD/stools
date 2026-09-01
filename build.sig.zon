@@ -3,7 +3,7 @@
     .version = "0.0.1",
     .fingerprint = 0x57001bad5100d5b0,
     .dependencies = .{
-        .zpm = .{ .path = "../../Lib/zpm" },
+        .zpm = .{ .path = "../zpm" },
     },
     .paths = .{
         "build.sig",

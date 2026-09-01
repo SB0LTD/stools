@@ -5,7 +5,10 @@ fn noop(ctx: *sig_build.Step_Context) sig_build.SigError!void { _ = ctx; }
 
 // zpm is a path dependency (see build.sig.zon). Consume its reusable modules
 // directly by source path — general capability lives in zpm, not here.
-const ZPM = "../../Lib/zpm/";
+// zpm is consumed as a sibling path dependency (see build.sig.zon), matching
+// the layout other SB0 projects use and how CI checks both repos out side by
+// side. Reusable capability lives in zpm; this project only orchestrates it.
+const ZPM = "../zpm/";
 
 fn importEntry(name: []const u8, path: []const u8) sig_build.Import_Entry {
     var entry: sig_build.Import_Entry = .{};

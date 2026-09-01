@@ -84,14 +84,13 @@ const MAX_WINDOWS = 256;
 
 fn titleContains(win: screencap.WindowInfo, needle: []const u8) bool {
     if (needle.len == 0) return true;
-    // WindowInfo.title is UTF-16; compare against ASCII needle loosely.
-    if (win.title_len < needle.len) return false;
+    const title = win.title[0..win.title_len]; // UTF-8
+    if (title.len < needle.len) return false;
     var i: usize = 0;
-    while (i + needle.len <= win.title_len) : (i += 1) {
+    while (i + needle.len <= title.len) : (i += 1) {
         var j: usize = 0;
         while (j < needle.len) : (j += 1) {
-            const c = win.title[i + j];
-            if (c > 127 or @as(u8, @intCast(c)) != needle[j]) break;
+            if (title[i + j] != needle[j]) break;
         }
         if (j == needle.len) return true;
     }
@@ -173,7 +172,7 @@ fn printVerified(label: []const u8) void {
 // ── Tests (pure orchestration helpers) ──────────────────────────────
 
 fn makeWin(title: []const u8) screencap.WindowInfo {
-    var w: screencap.WindowInfo = .{ .hwnd = undefined, .left = 0, .top = 0, .width = 100, .height = 100 };
+    var w: screencap.WindowInfo = .{ .handle = 0, .left = 0, .top = 0, .width = 100, .height = 100 };
     for (title, 0..) |c, i| w.title[i] = c;
     w.title_len = title.len;
     return w;

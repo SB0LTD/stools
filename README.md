@@ -36,6 +36,26 @@ sig build run      # build and run
 
 The compiled binary lands at `sig-out/bin/stools` (`.exe` on Windows).
 
+### Platforms
+
+stools cross-compiles to every SB0 target from a single host:
+
+| Platform | Notes |
+| --- | --- |
+| Windows (x86_64, aarch64) | full `slicker` support (Win32 GDI + SendInput) |
+| Linux (x86_64, aarch64) | full `slicker` support (Xlib + XTest) |
+| macOS (x86_64, aarch64) | full `slicker` support (CoreGraphics + CGEvent) |
+| SB0 native (aarch64) | bootable SB0K image; `slicker` capture lands when the Nexus compositor exposes capture/enumerate/inject ops |
+
+```sh
+sig build -Dtarget=x86_64-linux-gnu -Doptimize=ReleaseFast   # any hosted target
+bash scripts/build-sb0.sh sig-out/bin/stools-aarch64-sb0.sb0k # SB0K native image
+```
+
+CI builds and tests on every push, cross-compiles all targets, and boots the
+SB0K image under QEMU. Releases (on `v*` tags) publish signed archives for all
+platforms.
+
 ## Usage
 
 ```sh
