@@ -77,6 +77,30 @@ stools hash "hello"
 stools now
 ```
 
+## Tools
+
+The suite ships as focused binaries alongside the `stools` dispatcher:
+
+| Binary | Purpose |
+| --- | --- |
+| `stools` | Suite dispatcher + `slicker`, a config-driven visual UI-automation engine (scans all windows, detects a color signature, opt-in clicks + verifies). |
+| `img2elementor` | Reconstruct an editable Elementor template from a screenshot. |
+
+### img2elementor
+
+```sh
+img2elementor <input.png> [output.json]
+```
+
+Decodes the PNG, detects the page background, segments the layout, estimates
+per-region typography (size, weight, color, alignment), and writes a valid
+Elementor template JSON of containers, headings, text, buttons, and image
+blocks — importable via **Templates → Import**. Colors, sizes, and layout are
+reconstructed faithfully; exact glyph text can't be recovered from a flat
+raster, so text bodies are size-keyed placeholders to fill in. Entirely
+pure-Sig (PNG decode, image analysis, and JSON emission all live in
+[zpm](https://github.com/SB0LTD/zpm)).
+
 ## Project layout
 
 ```

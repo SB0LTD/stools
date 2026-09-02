@@ -8,6 +8,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- `img2elementor`: reconstruct an editable [Elementor](https://elementor.com)
+  template from a screenshot (typically of a website). Pure-Sig pipeline —
+  decode PNG, detect the page background, segment the layout into regions,
+  estimate per-region typography (font size, weight, color, alignment), and
+  emit a valid Elementor template JSON of containers, headings, text, buttons,
+  and image blocks. Colors, sizes, and layout are reconstructed faithfully;
+  exact glyph text is not recoverable from a flat raster, so text bodies are
+  size-keyed placeholders for the operator to fill. Powered by new zpm Layer-0
+  modules: `png_decode`, `image`, `layout`, `text_analyze`, `elementor_document`.
+  Usage: `img2elementor <input.png> [output.json]`.
 - `slicker`: a general, config-driven visual UI-automation engine. Enumerates
   all open windows, captures each, detects a configured color signature via the
   zpm `ui_detect` engine, and (opt-in) clicks the match and re-captures to

@@ -76,6 +76,39 @@ pub fn build(ctx: *sig_build.Build_Context) !void {
     const run = try ctx.addStep("run", "Build and run the native application", &runApp);
     try ctx.addDependency(run, executable);
 
+    // ── img2elementor: reconstruct an Elementor template from a screenshot ──
+    // Consumes the zpm image-analysis + elementor modules. Their inter-module
+    // imports are wired so the flat registry resolves nested @import()s
+    // (png_decode -> inflate; layout/text_analyze -> image).
+    _ = try ctx.addModule("inflate", ZPM ++ "src/core/inflate.sig");
+    const png_decode = try ctx.addModule("png_decode", ZPM ++ "src/image/png_decode.sig");
+    try wire(ctx, png_decode, "inflate", ZPM ++ "src/core/inflate.sig");
+    _ = try ctx.addModule("image", ZPM ++ "src/image/image.sig");
+    const layout = try ctx.addModule("layout", ZPM ++ "src/image/layout.sig");
+    try wire(ctx, layout, "image", ZPM ++ "src/image/image.sig");
+    const text_analyze = try ctx.addModule("text_analyze", ZPM ++ "src/image/text_analyze.sig");
+    try wire(ctx, text_analyze, "image", ZPM ++ "src/image/image.sig");
+    _ = try ctx.addModule("elementor_document", ZPM ++ "src/elementor/document.sig");
+
+    const img_imports = [_]sig_build.Import_Entry{
+        importEntry("png_decode", ZPM ++ "src/image/png_decode.sig"),
+        importEntry("inflate", ZPM ++ "src/core/inflate.sig"),
+        importEntry("image", ZPM ++ "src/image/image.sig"),
+        importEntry("layout", ZPM ++ "src/image/layout.sig"),
+        importEntry("text_analyze", ZPM ++ "src/image/text_analyze.sig"),
+        importEntry("elementor_document", ZPM ++ "src/elementor/document.sig"),
+    };
+    const img2elementor = try ctx.addCompileStep(.{
+        .source_path = "src/img2elementor.sig",
+        .output_name = "img2elementor",
+        .cache_dir = ctx.cache_dir[0..ctx.cache_dir_len],
+        .optimize = ctx.optimize,
+        .target = null,
+        .imports = &img_imports,
+        .compiler_path = "",
+    });
+    try ctx.addDependency(install, img2elementor);
+
     const test_all = try ctx.addStep("test", "Run the project tests", &noop);
     const tests = try ctx.addTestStep(.{ .name = "test-source", .source_path = "src/main.sig", .imports = &app_imports });
     try ctx.addDependency(test_all, tests);
