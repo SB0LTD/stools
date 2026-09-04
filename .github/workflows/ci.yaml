@@ -22,11 +22,14 @@ jobs:
           path: stools
 
       # zpm is a path dependency (../zpm). Check it out as a sibling so
-      # build.sig.zon resolves the same way it does locally.
+      # build.sig.zon resolves the same way it does locally. Pin the SHA so an
+      # unrelated zpm main push cannot make a previously green stools revision
+      # non-reproducible.
       - name: Checkout zpm (path dependency)
         uses: actions/checkout@v4
         with:
           repository: SB0LTD/zpm
+          ref: 53051b75873fae047a1bd2394ced12c81afe873f
           path: zpm
 
       - name: Install latest Sig
@@ -59,12 +62,22 @@ jobs:
         working-directory: stools
         run: |
           set -euo pipefail
-          for triple in \
-            x86_64-linux-gnu aarch64-linux-gnu \
-            x86_64-macos aarch64-macos \
-            x86_64-windows aarch64-windows; do
+          # target-triple : binary-extension
+          for entry in \
+            x86_64-linux-gnu: aarch64-linux-gnu: \
+            x86_64-macos: aarch64-macos: \
+            x86_64-windows:.exe aarch64-windows:.exe; do
+            triple="${entry%%:*}"; ext="${entry#*:}"
             echo "::group::$triple"
             rm -rf sig-out
             sig build -Dtarget="$triple" -Doptimize=ReleaseFast
+            # Every target must produce both suite binaries; fail loudly if not.
+            for bin in stools img2elementor; do
+              path="sig-out/bin/$bin$ext"
+              if [ ! -f "$path" ]; then
+                echo "FAIL: $triple did not produce $path"; exit 1
+              fi
+            done
+            echo "  ok: $triple -> stools$ext, img2elementor$ext"
             echo "::endgroup::"
           done

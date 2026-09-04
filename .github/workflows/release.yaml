@@ -41,11 +41,13 @@ jobs:
           ref: ${{ steps.meta.outputs.tag }}
 
       # zpm is a path dependency (../zpm). Check it out as a sibling so
-      # build.sig.zon resolves the same way it does locally.
+      # build.sig.zon resolves the same way it does locally. Pinned for
+      # reproducible releases.
       - name: Checkout zpm (path dependency)
         uses: actions/checkout@v4
         with:
           repository: SB0LTD/zpm
+          ref: 53051b75873fae047a1bd2394ced12c81afe873f
           path: zpm
 
       - name: Install QEMU (for SB0 boot verification)
