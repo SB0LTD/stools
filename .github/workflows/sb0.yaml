@@ -18,6 +18,15 @@ jobs:
   sb0-qemu:
     name: Build SB0K image and boot under QEMU
     runs-on: ubuntu-latest
+    # Non-blocking for now: the published Sig 0.5.0 release has an aarch64
+    # self-hosted backend regression that breaks freestanding aarch64-sb0
+    # builds (missing lowerings for non-power-of-two byte_swap and div_ceil,
+    # hit via std readPackedInt in the f80/f128 compiler_rt routines). The
+    # library-side trigger is fixed in sig master (compiler_rt soft-float ABI),
+    # but the backend lowerings still need to land and a new Sig release cut.
+    # Re-enable enforcement (remove continue-on-error) once a Sig release builds
+    # aarch64-sb0. Hosted targets + releases are fully enforced in ci.yaml.
+    continue-on-error: true
     steps:
       - name: Checkout stools
         uses: actions/checkout@v4
