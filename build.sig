@@ -43,10 +43,12 @@ fn runApp(ctx: *sig_build.Step_Context) sig_build.SigError!void {
 }
 
 pub fn build(ctx: *sig_build.Build_Context) !void {
-    const win32_path = if (builtin.os.tag == .windows)
-        ZPM ++ "src/platform/win32.sig"
-    else
-        ZPM ++ "src/transport/linux_platform.sig";
+    // Always wire the real win32 FFI module. Its extern declarations are inert
+    // (never referenced) unless the screencap backend selects the Windows path
+    // at comptime for a Windows TARGET — so it compiles cleanly on any build
+    // host. Keying this off the host `builtin.os.tag` was wrong: cross-compiling
+    // to a Windows target from a Linux CI host must still provide real win32.
+    const win32_path = ZPM ++ "src/platform/win32.sig";
 
     // Register the zpm modules we consume and wire their own imports so the
     // flat module registry resolves nested `@import("win32")` inside screencap.
