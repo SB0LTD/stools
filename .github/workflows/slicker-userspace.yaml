@@ -1,0 +1,105 @@
+name: slicker userspace (Nexus kernel + QEMU)
+
+# Proves slicker runs as a native SB0X userspace process on the generic
+# SB0/Nexus kernel — the proper userspace path, not a bare-metal SB0K probe.
+#
+# It builds slicker.sb0x here (stools owns the app), fetches the GENERIC Nexus
+# kernel + the reusable disk/boot harness from Nexus's latest release, stages
+# slicker.sb0x onto a FAT disk (APP.SBX + APP.MFT profile=interactive), boots
+# the kernel with that disk on virtio-blk, and asserts slicker enumerated the
+# compositor, captured, and exited cleanly. Nexus embeds nothing about slicker;
+# the app arrives at runtime on the disk.
+
+on:
+  push:
+    branches: [master, main]
+    paths:
+      - "src/platform/sb0_slicker_app.sig"
+      - "src/platform/sb0x_app.ld"
+      - "scripts/build-slicker-sb0x.sh"
+      - ".github/workflows/slicker-userspace.yaml"
+  pull_request:
+    branches: [master, main]
+  workflow_dispatch:
+
+concurrency:
+  group: slicker-userspace-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  slicker-qemu:
+    name: Build slicker.sb0x and run on Nexus under QEMU
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout stools
+        uses: actions/checkout@v4
+        with:
+          path: stools
+
+      - name: Checkout zpm (path dependency)
+        uses: actions/checkout@v4
+        with:
+          repository: SB0LTD/zpm
+          ref: 0302c5f7c7fb84f8104cbd39d0adf7dbc4623229
+          path: zpm
+
+      - name: Install toolchain (LLVM + QEMU + FAT tools)
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y llvm qemu-system-arm xz-utils curl dosfstools mtools python3
+          for t in objcopy objdump readobj; do
+            command -v "llvm-$t" >/dev/null 2>&1 || {
+              p="$(ls /usr/bin/llvm-$t-* 2>/dev/null | head -n1 || true)"
+              [ -n "$p" ] && sudo ln -sf "$p" "/usr/local/bin/llvm-$t" || true
+            }
+          done
+          qemu-system-aarch64 --version | head -1
+
+      - name: Install latest Sig
+        run: |
+          set -euo pipefail
+          URL="https://github.com/SB0LTD/sig/releases/latest/download/sig-x86_64-linux.tar.xz"
+          curl -fSL "$URL" -o sig.tar.xz
+          mkdir -p sig-dist && tar -xf sig.tar.xz -C sig-dist
+          SIG_BIN="$(find "$PWD/sig-dist" -type f -name sig | head -n1)"
+          chmod +x "$SIG_BIN"
+          echo "$(dirname "$SIG_BIN")" >> "$GITHUB_PATH"
+          "$SIG_BIN" version
+
+      - name: Build slicker.sb0x (native SB0X userspace image)
+        working-directory: stools
+        run: bash scripts/build-slicker-sb0x.sh sig-out/bin/slicker.sb0x
+
+      - name: Fetch the generic Nexus kernel + harness (latest release)
+        run: |
+          set -euo pipefail
+          BASE="https://github.com/SB0LTD/nexus/releases/latest/download"
+          curl -fSL "$BASE/sb0s-kernel"      -o sb0s-kernel
+          curl -fSL "$BASE/make-app-disk.sh" -o make-app-disk.sh
+          curl -fSL "$BASE/test-app-qemu.sh" -o test-app-qemu.sh
+          chmod +x make-app-disk.sh test-app-qemu.sh
+          test -s sb0s-kernel
+
+      - name: Assemble slicker app disk (profile=interactive)
+        run: |
+          set -euo pipefail
+          bash make-app-disk.sh \
+            stools/sig-out/bin/slicker.sb0x slicker interactive \
+            slicker-disk.img 64
+
+      - name: Boot Nexus + slicker disk, assert the scan ran
+        run: |
+          set -euo pipefail
+          bash test-app-qemu.sh \
+            --kernel sb0s-kernel \
+            --disk slicker-disk.img \
+            --profile interactive \
+            -- \
+            "app-loader: app 'slicker' ready" \
+            "SLICKER-READY" \
+            "slicker: surfaces enumerated=" \
+            "slicker: surfaces captured=" \
+            "SLICKER-DONE" \
+            "[sb0] process exit code=0x0"

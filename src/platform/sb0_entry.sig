@@ -16,7 +16,7 @@ const uart = @import("uart");
 const screencap = @import("screencap");
 const ui_detect = @import("ui_detect");
 
-const build_version = "0.0.1";
+const build_version = "0.0.2";
 
 extern var __bss_start: u8;
 extern var __bss_end: u8;

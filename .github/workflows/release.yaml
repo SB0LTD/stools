@@ -122,17 +122,18 @@ jobs:
             echo "::endgroup::"
           done
 
-          # SB0 native — a bare-metal SB0K image that boots under QEMU and runs
-          # the slicker scan over the serial console (see scripts/build-sb0.sh).
-          # Boot-verified before shipping so a release never publishes an SB0
-          # image that doesn't run.
-          echo "::group::build aarch64-sb0 (SB0K native)"
+          # SB0 native — slicker as an SB0X userspace image for the generic
+          # SB0/Nexus kernel. Published as a bare `slicker.sb0x` (the stable
+          # asset app-disk assembly fetches via releases/latest) AND inside a
+          # documented archive. The slicker-userspace workflow boot-verifies it
+          # on the real Nexus kernel; here we build + publish the artifact.
+          echo "::group::build aarch64-sb0 (slicker SB0X userspace image)"
           rm -rf sig-out
-          bash scripts/build-sb0.sh "sig-out/bin/stools-$VERSION-aarch64-sb0.sb0k"
-          bash scripts/sb0-qemu-test.sh "sig-out/bin/stools-$VERSION-aarch64-sb0.sb0k"
+          bash scripts/build-slicker-sb0x.sh "sig-out/bin/slicker.sb0x"
+          cp "sig-out/bin/slicker.sb0x" "$OUT/slicker.sb0x"
           sb0_stage="stools-$VERSION-aarch64-sb0"
           mkdir -p "$sb0_stage"
-          cp "sig-out/bin/stools-$VERSION-aarch64-sb0.sb0k" "$sb0_stage/stools.sb0k"
+          cp "sig-out/bin/slicker.sb0x" "$sb0_stage/slicker.sb0x"
           cp README.md LICENSE CHANGELOG.md "$sb0_stage/"
           tar -czf "$OUT/$sb0_stage.tar.gz" -C "$sb0_stage" .
           rm -rf "$sb0_stage"
@@ -172,7 +173,7 @@ jobs:
           | Linux aarch64   | \`stools-$VERSION-aarch64-linux.tar.gz\` |
           | macOS x86_64    | \`stools-$VERSION-x86_64-macos.tar.gz\`  |
           | macOS aarch64   | \`stools-$VERSION-aarch64-macos.tar.gz\` |
-          | **SB0 native**  | \`stools-$VERSION-aarch64-sb0.tar.gz\` (bootable SB0K image) |
+          | **SB0 native**  | \`slicker.sb0x\` — SB0X userspace image for the generic SB0/Nexus kernel (also in \`stools-$VERSION-aarch64-sb0.tar.gz\`) |
 
           ### Install
           Extract the archive for your platform and run \`stools\` (or \`stools.exe\`).
