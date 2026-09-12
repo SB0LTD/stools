@@ -7,7 +7,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.0.2] - 2026-09-11
+
 ### Added
+- `slicker` is now a working end-to-end UI-automation engine with a real CLI
+  (`stools slicker [flags]`): find a target across every open window and,
+  opt-in, click it — once or continuously (`--watch`).
+  - **Two detection modes**: by color region (`--sig R,G,B --multi`, best for
+    solid-color buttons — only the button forms a large connected region of
+    that color) and by image template (`--template FILE.png`, edge/shape
+    chamfer matching robust to color/brightness).
+  - **Continuous mode** (`--watch`, `--interval-ms`, `--passes`): re-scan and
+    click all matches each pass — e.g. auto-approving a prompt that reappears.
+  - Flags: `--sig`, `--tol`, `--min-area`, `--min-fill`, `--title`, `--multi`,
+    `--max-regions`, `--template`, `--score`, `--click`, `--no-verify`,
+    `--delay-ms`, `--label`, `--watch`, `--interval-ms`, `--passes`. Safety
+    gate: never clicks without both `--click` and an explicit target.
+- Windows: captures GPU-composited windows (VS Code, Kiro, Chrome) and occluded
+  windows via **Windows Graphics Capture** (zpm `screencap` WGC backend),
+  including DPI-scaled displays, where the previous GDI capture returned black.
+
+### Fixed
+- Windows clicks now actually land: corrected the `INPUT` struct size that made
+  `SendInput` reject every synthetic click on x64 (zpm `win32`).
+
+### Changed
+- Depends on the zpm `ui_detect` multi-region / template / chamfer detectors and
+  the `screencap` capture/click backends (pinned zpm revision).
+
+### Added (earlier in this cycle)
 - `img2elementor`: reconstruct an editable [Elementor](https://elementor.com)
   template from a screenshot (typically of a website). Pure-Sig pipeline —
   decode PNG, detect the page background, segment the layout into regions,
@@ -45,4 +73,5 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Bounded `build.sig` build graph with `build`, `run`, and `test` steps.
 - README, CHANGELOG, MIT LICENSE, and project logo.
 
+[0.0.2]: https://github.com/SB0LTD/stools/releases/tag/v0.0.2
 [0.0.1]: https://github.com/SB0LTD/stools/releases/tag/v0.0.1

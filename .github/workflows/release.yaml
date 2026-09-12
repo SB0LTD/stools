@@ -47,7 +47,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: SB0LTD/zpm
-          ref: 53051b75873fae047a1bd2394ced12c81afe873f
+          ref: 2406d19cadee2bb7552a00de3964e2b8978fb102
           path: zpm
 
       - name: Install QEMU (for SB0 boot verification)

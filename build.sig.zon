@@ -1,6 +1,6 @@
 .{
     .name = .stools,
-    .version = "0.0.1",
+    .version = "0.0.2",
     .fingerprint = 0x57001bad5100d5b0,
     .dependencies = .{
         .zpm = .{ .path = "../zpm" },

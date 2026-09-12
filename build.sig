@@ -58,10 +58,20 @@ pub fn build(ctx: *sig_build.Build_Context) !void {
     const screencap = try ctx.addModule("screencap", ZPM ++ "src/platform/screencap.sig");
     try wire(ctx, screencap, "win32", win32_path);
 
+    // slicker's --template mode loads a PNG and matches it across windows, so
+    // stools also consumes the zpm PNG decoder (Layer 0). png_decode depends on
+    // inflate; register both before the compile step and wire the nested import
+    // so the flat registry resolves png_decode -> inflate.
+    _ = try ctx.addModule("inflate", ZPM ++ "src/core/inflate.sig");
+    const app_png_decode = try ctx.addModule("png_decode", ZPM ++ "src/image/png_decode.sig");
+    try wire(ctx, app_png_decode, "inflate", ZPM ++ "src/core/inflate.sig");
+
     const app_imports = [_]sig_build.Import_Entry{
         importEntry("screencap", ZPM ++ "src/platform/screencap.sig"),
         importEntry("ui_detect", ZPM ++ "src/core/ui_detect.sig"),
         importEntry("win32", win32_path),
+        importEntry("png_decode", ZPM ++ "src/image/png_decode.sig"),
+        importEntry("inflate", ZPM ++ "src/core/inflate.sig"),
     };
 
     const executable = try ctx.addCompileStep(.{
@@ -79,12 +89,10 @@ pub fn build(ctx: *sig_build.Build_Context) !void {
     try ctx.addDependency(run, executable);
 
     // ── img2elementor: reconstruct an Elementor template from a screenshot ──
-    // Consumes the zpm image-analysis + elementor modules. Their inter-module
-    // imports are wired so the flat registry resolves nested @import()s
-    // (png_decode -> inflate; layout/text_analyze -> image).
-    _ = try ctx.addModule("inflate", ZPM ++ "src/core/inflate.sig");
-    const png_decode = try ctx.addModule("png_decode", ZPM ++ "src/image/png_decode.sig");
-    try wire(ctx, png_decode, "inflate", ZPM ++ "src/core/inflate.sig");
+    // Consumes the zpm image-analysis + elementor modules. inflate + png_decode
+    // are already registered (and wired png_decode -> inflate) above for the
+    // slicker --template path; here we add the remaining image/elementor
+    // modules and wire layout/text_analyze -> image.
     _ = try ctx.addModule("image", ZPM ++ "src/image/image.sig");
     const layout = try ctx.addModule("layout", ZPM ++ "src/image/layout.sig");
     try wire(ctx, layout, "image", ZPM ++ "src/image/image.sig");

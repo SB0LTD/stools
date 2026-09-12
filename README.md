@@ -62,12 +62,13 @@ platforms.
 stools <command> [args]
 ```
 
-| Command          | Description                                    |
-| ---------------- | ---------------------------------------------- |
-| `help`           | Show usage                                     |
-| `version`        | Print the suite version                        |
-| `hash <text>`    | Print the FNV-1a 64-bit hash of the given text |
-| `now`            | Print a monotonic timestamp (nanoseconds)      |
+| Command             | Description                                              |
+| ------------------- | -------------------------------------------------------- |
+| `help`              | Show usage                                               |
+| `version`           | Print the suite version                                  |
+| `slicker [flags]`   | Visual UI-automation engine — find and click UI elements |
+| `hash <text>`       | Print the FNV-1a 64-bit hash of the given text           |
+| `now`               | Print a monotonic timestamp (nanoseconds)                |
 
 ### Examples
 
@@ -76,6 +77,51 @@ stools version
 stools hash "hello"
 stools now
 ```
+
+## slicker
+
+`slicker` scans every open window, finds a target UI element, and — when you opt
+in — clicks it. It captures each window's true framebuffer via **Windows
+Graphics Capture** (so it sees GPU-composited apps like VS Code / Kiro / Chrome,
+even when they're behind other windows), then locates the target either by
+**color region** or by **image template**.
+
+### Finding by color region (most robust for solid-color buttons)
+
+A distinctively-colored button (e.g. a purple "Allow" approval button) is best
+found by its fill color + size: only the button forms a large connected region
+of that color, so scattered UI accents of the same hue are ignored.
+
+```sh
+# Detect only (safe): report where the purple button is, never click.
+stools slicker --multi --sig 113,56,204 --tol 24 --min-area 3000 --min-fill 550 --title gotliv
+
+# Find AND keep clicking it as it reappears (continuous auto-approve):
+stools slicker --multi --sig 113,56,204 --tol 24 --min-area 3000 --min-fill 550 --title gotliv --click --watch
+```
+
+- `--sig R,G,B` the button's fill color (sample it from a screenshot)
+- `--tol N` per-channel color tolerance
+- `--min-area N` minimum connected-pixel area — filters out small same-color noise
+- `--multi` treat each distinct region separately (click every match)
+- `--title SUBSTR` restrict to windows whose title contains `SUBSTR`
+- `--click` actually click (opt-in; detect-only without it)
+- `--watch` scan continuously; `--interval-ms N` sets the cadence (default 500)
+
+### Finding by image template (shape matching)
+
+Give slicker a cropped PNG of the element; it matches by edge/shape (robust to
+color and brightness shifts):
+
+```sh
+stools slicker --template button.png --score 850 --title gotliv --click --watch
+```
+
+### Safety
+
+slicker never clicks unless you pass `--click` **and** an explicit target
+(`--sig` or `--template`). There is no built-in rule targeting any
+application's prompts — what it automates is entirely operator-chosen.
 
 ## Tools
 
@@ -105,14 +151,22 @@ pure-Sig (PNG decode, image analysis, and JSON emission all live in
 
 ```
 stools/
-├─ build.sig        # pure-Sig bounded build graph
-├─ build.sig.zon    # package manifest (name, version, deps)
+├─ build.sig            # pure-Sig bounded build graph
+├─ build.sig.zon        # package manifest (name, version, deps)
 ├─ src/
-│  └─ main.sig      # entry point + command dispatch
+│  ├─ main.sig          # entry point + command dispatch + slicker CLI
+│  ├─ slicker.sig       # visual UI-automation engine (scan/detect/click/watch)
+│  ├─ img2elementor.sig # screenshot → Elementor template
+│  └─ platform/         # SB0 bare-metal entry, UART, linker script
 ├─ CHANGELOG.md
 ├─ LICENSE
 └─ logo.png
 ```
+
+Detection and capture live in [zpm](https://github.com/SB0LTD/zpm):
+`ui_detect` (color-region + template/chamfer matching, Layer 0) and `screencap`
+(window enumerate/capture/click per OS — Windows Graphics Capture, CoreGraphics,
+Xlib, and the SB0 Nexus client).
 
 ## Contributing
 
