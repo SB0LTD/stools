@@ -28,7 +28,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: SB0LTD/zpm
-          ref: 2406d19cadee2bb7552a00de3964e2b8978fb102
+          ref: 0302c5f7c7fb84f8104cbd39d0adf7dbc4623229
           path: zpm
 
       - name: Install QEMU (aarch64 system emulation)
