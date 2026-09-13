@@ -99,9 +99,15 @@ fn processExit(code: u64) noreturn {
 }
 
 // Static capture buffer sized for a 1080p BGRX scanout (1920x1080 RGBA).
+// It MUST be zero-initialized (not `undefined`): the SB0 link backend maps an
+// all-zero global into the read-write segment's BSS tail (mem_size only, no
+// file bytes), so this ~8 MiB buffer costs nothing on disk. Left `undefined`,
+// its bytes are not guaranteed zero, so the backend materializes the whole
+// buffer as initialized `.data` — bloating the SB0X image past the loader's
+// bound and failing validation (SegmentOutOfFile).
 const MAX_WINDOWS = 8;
 const CAPTURE_BYTES = 1920 * 1080 * 4;
-var capture_buf: [CAPTURE_BYTES]u8 = undefined;
+var capture_buf: [CAPTURE_BYTES]u8 = [_]u8{0} ** CAPTURE_BYTES;
 var windows: screencap.WindowList(MAX_WINDOWS) = .{};
 
 /// Run one detect-only scan pass over every compositor surface and report the
