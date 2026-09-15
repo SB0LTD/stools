@@ -82,6 +82,8 @@ pub fn build(ctx: *sig_build.Build_Context) !void {
         .target = null,
         .imports = &app_imports,
         .compiler_path = "",
+        // Native app icon (icon id 1 → src/stools.ico).
+        .win32_resource = "src/stools.rc",
     });
     const install = try ctx.addStep("install", "Build the native application", &noop);
     try ctx.addDependency(install, executable);
@@ -100,6 +102,13 @@ pub fn build(ctx: *sig_build.Build_Context) !void {
     try wire(ctx, text_analyze, "image", ZPM ++ "src/image/image.sig");
     _ = try ctx.addModule("elementor_document", ZPM ++ "src/elementor/document.sig");
 
+    // URL input: img2elementor renders a live page to a PNG by driving a
+    // headless browser. That capability is general-purpose and lives in zpm
+    // (web_capture -> subprocess). Register both and wire the nested import.
+    _ = try ctx.addModule("subprocess", ZPM ++ "src/platform/subprocess.sig");
+    const web_capture = try ctx.addModule("web_capture", ZPM ++ "src/platform/web_capture.sig");
+    try wire(ctx, web_capture, "subprocess", ZPM ++ "src/platform/subprocess.sig");
+
     const img_imports = [_]sig_build.Import_Entry{
         importEntry("png_decode", ZPM ++ "src/image/png_decode.sig"),
         importEntry("inflate", ZPM ++ "src/core/inflate.sig"),
@@ -107,6 +116,8 @@ pub fn build(ctx: *sig_build.Build_Context) !void {
         importEntry("layout", ZPM ++ "src/image/layout.sig"),
         importEntry("text_analyze", ZPM ++ "src/image/text_analyze.sig"),
         importEntry("elementor_document", ZPM ++ "src/elementor/document.sig"),
+        importEntry("web_capture", ZPM ++ "src/platform/web_capture.sig"),
+        importEntry("subprocess", ZPM ++ "src/platform/subprocess.sig"),
     };
     const img2elementor = try ctx.addCompileStep(.{
         .source_path = "src/img2elementor.sig",
@@ -116,10 +127,81 @@ pub fn build(ctx: *sig_build.Build_Context) !void {
         .target = null,
         .imports = &img_imports,
         .compiler_path = "",
+        // Native app icon (icon id 1 → src/stools.ico).
+        .win32_resource = "src/stools.rc",
     });
     try ctx.addDependency(install, img2elementor);
+
+    // ── stools-ui: the translucent launcher GUI ──
+    // A Layer-3 shell that renders the data-driven command registry and launches
+    // any tool via subprocess. It consumes the zpm windowing + GL + render
+    // (materials/primitives/text/color) stack and the subprocess module. Each
+    // module is registered and its nested imports wired so the flat registry
+    // resolves the dependency graph:
+    //   launcher -> window -> { win32, gl }
+    //             -> primitives -> { gl, color }
+    //             -> text -> { win32, gl, color }
+    //             -> materials -> gl
+    //             -> subprocess
+    _ = try ctx.addModule("gl", ZPM ++ "src/platform/gl.sig");
+    _ = try ctx.addModule("color", ZPM ++ "src/render/color.sig");
+
+    const ui_window = try ctx.addModule("window", ZPM ++ "src/platform/window.sig");
+    try wire(ctx, ui_window, "win32", win32_path);
+    try wire(ctx, ui_window, "gl", ZPM ++ "src/platform/gl.sig");
+
+    const ui_prim = try ctx.addModule("primitives", ZPM ++ "src/render/primitives.sig");
+    try wire(ctx, ui_prim, "gl", ZPM ++ "src/platform/gl.sig");
+    try wire(ctx, ui_prim, "color", ZPM ++ "src/render/color.sig");
+
+    const ui_text = try ctx.addModule("text", ZPM ++ "src/render/text.sig");
+    try wire(ctx, ui_text, "win32", win32_path);
+    try wire(ctx, ui_text, "gl", ZPM ++ "src/platform/gl.sig");
+    try wire(ctx, ui_text, "color", ZPM ++ "src/render/color.sig");
+
+    const ui_mats = try ctx.addModule("materials", ZPM ++ "src/render/materials.sig");
+    try wire(ctx, ui_mats, "gl", ZPM ++ "src/platform/gl.sig");
+
+    const ui_icon = try ctx.addModule("icon", ZPM ++ "src/render/icon.sig");
+    try wire(ctx, ui_icon, "gl", ZPM ++ "src/platform/gl.sig");
+    try wire(ctx, ui_icon, "win32", win32_path);
+
+    // subprocess is already registered above (for web_capture); it needs no
+    // custom nested imports (only std + builtin).
+
+    const ui_imports = [_]sig_build.Import_Entry{
+        importEntry("win32", win32_path),
+        importEntry("gl", ZPM ++ "src/platform/gl.sig"),
+        importEntry("color", ZPM ++ "src/render/color.sig"),
+        importEntry("window", ZPM ++ "src/platform/window.sig"),
+        importEntry("primitives", ZPM ++ "src/render/primitives.sig"),
+        importEntry("text", ZPM ++ "src/render/text.sig"),
+        importEntry("materials", ZPM ++ "src/render/materials.sig"),
+        importEntry("icon", ZPM ++ "src/render/icon.sig"),
+        importEntry("subprocess", ZPM ++ "src/platform/subprocess.sig"),
+    };
+    const launcher = try ctx.addCompileStep(.{
+        .source_path = "src/launcher.sig",
+        .output_name = "stools-ui",
+        .cache_dir = ctx.cache_dir[0..ctx.cache_dir_len],
+        .optimize = ctx.optimize,
+        .target = null,
+        .imports = &ui_imports,
+        .compiler_path = "",
+        // Embed the app icon natively via the resource script (icon id 1 →
+        // src/stools.ico). The compiler compiles the .rc and links its .res in,
+        // so the exe carries the Explorer/taskbar icon with no post-build step.
+        .win32_resource = "src/stools.rc",
+    });
+    try ctx.addDependency(install, launcher);
 
     const test_all = try ctx.addStep("test", "Run the project tests", &noop);
     const tests = try ctx.addTestStep(.{ .name = "test-source", .source_path = "src/main.sig", .imports = &app_imports });
     try ctx.addDependency(test_all, tests);
+
+    // Cover the launcher's schema + argv-assembly logic (tool_schema.sig,
+    // launch.sig). Uses the same UI import graph so subprocess/tool_schema
+    // resolve.
+    const ui_tests = try ctx.addTestStep(.{ .name = "test-ui", .source_path = "src/launch.sig", .imports = &ui_imports });
+    try ctx.addDependency(test_all, ui_tests);
 }

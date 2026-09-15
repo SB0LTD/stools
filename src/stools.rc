@@ -1,0 +1,5 @@
+// Win32 resource script for the stools suite executables.
+// The sig/Zig compiler compiles .rc sources natively (see `sig build-exe`
+// -rcflags / -rcincludes), so the app icon is embedded at link time — no
+// post-build stamping. Icon id 1 is the app icon Explorer/taskbar use.
+1 ICON "stools.ico"
