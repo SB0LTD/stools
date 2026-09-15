@@ -34,7 +34,8 @@ sig build test     # run the tests
 sig build run      # build and run
 ```
 
-The compiled binary lands at `sig-out/bin/stools` (`.exe` on Windows).
+The compiled binaries land in `sig-out/bin/` (`.exe` on Windows): the `stools`
+dispatcher, the `img2elementor` tool, and `stools-ui` — the launcher GUI.
 
 ### Platforms
 
@@ -123,6 +124,33 @@ slicker never clicks unless you pass `--click` **and** an explicit target
 (`--sig` or `--template`). There is no built-in rule targeting any
 application's prompts — what it automates is entirely operator-chosen.
 
+## stools-ui
+
+`stools-ui` is a translucent, dark-glass control panel for the whole suite. It
+renders every command as a form — toggles, steppers, color pickers, text
+fields, and segmented choices — and launches the selected tool for you, showing
+its output inline. Long-running commands (like `slicker --watch`) spawn in the
+background with a **Stop** control; one-shot commands run and capture their
+output.
+
+```sh
+stools-ui
+```
+
+The launcher is **data-driven**: every command and flag comes from a single
+schema (`src/tool_schema.sig`). Adding a new tool is one entry in that
+registry — the UI renders it and the argv assembler serializes it with no other
+changes. It reuses the same safety gate as the CLI (slicker won't click without
+an explicit target). Visually it matches the SB0 house style: a borderless,
+layered see-through window over the zpm OpenGL + `materials` render stack, with
+the suite logo in the titlebar and command rail.
+
+The app icon (window, taskbar, and Explorer) comes from a single `src/stools.ico`
+(generated from `logo.png` by `scripts/make-ico.ps1`, with sizes up to 256 for
+Windows 11). It is embedded natively: the window/rail logo via `@embedFile`, and
+the exe icon via `src/stools.rc` compiled and linked by `sig build` (the build
+step's `.win32_resource` option) — no post-build tools.
+
 ## Tools
 
 The suite ships as focused binaries alongside the `stools` dispatcher:
@@ -130,22 +158,40 @@ The suite ships as focused binaries alongside the `stools` dispatcher:
 | Binary | Purpose |
 | --- | --- |
 | `stools` | Suite dispatcher + `slicker`, a config-driven visual UI-automation engine (scans all windows, detects a color signature, opt-in clicks + verifies). |
-| `img2elementor` | Reconstruct an editable Elementor template from a screenshot. |
+| `stools-ui` | Translucent launcher GUI — renders the data-driven command registry into a form and launches any tool via subprocess, streaming its output. |
+| `img2elementor` | Reconstruct an editable Elementor template from a screenshot or a live URL. |
 
 ### img2elementor
 
 ```sh
-img2elementor <input.png> [output.json]
+img2elementor <input.png>     [output.json] [--debug]   # from a local image
+img2elementor <https://site>  [output.json] [--debug]   # capture the URL first
 ```
 
-Decodes the PNG, detects the page background, segments the layout, estimates
-per-region typography (size, weight, color, alignment), and writes a valid
-Elementor template JSON of containers, headings, text, buttons, and image
-blocks — importable via **Templates → Import**. Colors, sizes, and layout are
-reconstructed faithfully; exact glyph text can't be recovered from a flat
-raster, so text bodies are size-keyed placeholders to fill in. Entirely
-pure-Sig (PNG decode, image analysis, and JSON emission all live in
-[zpm](https://github.com/SB0LTD/zpm)).
+Given a URL, it renders the page to a PNG with a headless browser
+(Chrome/Edge/Chromium/Brave, whichever is installed) and then runs the same
+pipeline. Given a local `.png`, it uses it directly.
+
+The pipeline decodes the PNG, detects the page background, segments the layout
+into rows and columns, estimates per-region typography (size, weight, color,
+alignment), and writes a valid Elementor template JSON — importable via
+**Templates → Import**. It reconstructs the page *structure*: a horizontal nav
+row, side-by-side hero columns (text beside a photo), headings, buttons, and
+image blocks, with measured colors and font sizes.
+
+What it can and can't recover: geometry, colors, font sizes, alignment, and the
+row/column layout are reconstructed faithfully. Exact glyph text and photo
+*content* cannot be recovered from a flat raster, so text is emitted as
+size-keyed placeholders (`"Multi-line heading text"`, `"Body text"`) and images
+as empty boxes sized to the region — the operator fills those in. Fidelity also
+depends on the capture being fully rendered; a live capture taken before fonts
+or images settle reconstructs less detail than a complete one.
+
+`--debug` prints the detected regions (kind, bounds, line count, font height,
+density) to stderr — useful for tuning.
+
+Entirely pure-Sig: PNG decode, image analysis, URL capture, and JSON emission
+all live in [zpm](https://github.com/SB0LTD/zpm).
 
 ## Project layout
 
@@ -157,6 +203,11 @@ stools/
 │  ├─ main.sig          # entry point + command dispatch + slicker CLI
 │  ├─ slicker.sig       # visual UI-automation engine (scan/detect/click/watch)
 │  ├─ img2elementor.sig # screenshot → Elementor template
+│  ├─ tool_schema.sig   # data-driven registry of commands + flags (drives the UI)
+│  ├─ launch.sig        # schema → argv → subprocess launch (generic)
+│  ├─ launcher.sig      # stools-ui: translucent launcher GUI
+│  ├─ stools.ico        # app icon (window/taskbar/exe), sizes 16..256
+│  ├─ stools.rc         # win32 resource: embeds stools.ico as the exe icon
 │  └─ platform/         # SB0 bare-metal entry, UART, linker script
 ├─ CHANGELOG.md
 ├─ LICENSE

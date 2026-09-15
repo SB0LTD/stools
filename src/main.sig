@@ -25,7 +25,7 @@ var tpl_rgba: [TPL_MAX_PX * 4]u8 = undefined; // decoded RGBA8
 var tpl_edge_points: [TPL_MAX_PX]ui_detect.EdgePoint = undefined;
 const TEMPLATE_EDGE_THRESHOLD: u32 = 200;
 
-pub const version = "0.0.2";
+pub const version = "0.1.0";
 
 /// Every top-level command understood by the suite.
 pub const Command = enum {
