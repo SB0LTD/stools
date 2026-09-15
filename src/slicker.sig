@@ -122,6 +122,11 @@ var template_out: [MAX_TEMPLATE_HITS]ui_detect.TemplateMatch = undefined;
 
 const MAX_WINDOWS = 256;
 
+// Small yield between per-window captures within a single pass. Spreads the
+// GPU/DWM capture work out so a pass is not one tight burst — keeps slicker
+// unobtrusive and avoids piling capture sessions onto heavy compositor events.
+const INTER_WINDOW_YIELD_MS: u32 = 15;
+
 fn titleContains(win: screencap.WindowInfo, needle: []const u8) bool {
     if (needle.len == 0) return true;
     const title = win.title[0..win.title_len]; // UTF-8
@@ -153,6 +158,13 @@ pub fn scanOnce(config: Config) ScanReport {
         // Skip windows larger than our static buffer.
         const need = @as(usize, @intCast(win.width)) * @as(usize, @intCast(win.height)) * 4;
         if (win.width <= 0 or win.height <= 0 or need > capture_buf.len) continue;
+
+        // De-burst: yield briefly before each capture so a pass spreads its
+        // GPU/DWM work out instead of firing N back-to-back capture sessions.
+        // This keeps slicker unobtrusive and avoids colliding a tight burst
+        // with heavy compositor events (e.g. alt+tab). Skip the yield before
+        // the very first captured window.
+        if (report.windows_scanned > 0) screencap.sleepMs(INTER_WINDOW_YIELD_MS);
 
         report.windows_scanned += 1;
 

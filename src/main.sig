@@ -89,7 +89,7 @@ fn printUsage() void {
         \\  --delay-ms N        Wait between click and verify (default 120)
         \\  --label TEXT        Human label used in match logs
         \\  --watch             Scan continuously, clicking all matches each pass
-        \\  --interval-ms N     Delay between watch passes (default 500)
+        \\  --interval-ms N     Delay between watch passes (default 1000)
         \\  --passes N          Run N passes then stop (implies --watch)
         \\
         \\Examples:
@@ -171,7 +171,10 @@ const ParseError = error{
 const SlickerRun = struct {
     config: slicker.Config,
     watch: bool = false,
-    interval_ms: u32 = 500,
+    // 1s between passes by default: gentle on the GPU/DWM and unobtrusive, but
+    // still well within reach for approval prompts that linger. Override with
+    // --interval-ms for a tighter or looser cadence.
+    interval_ms: u32 = 1000,
     /// 0 = run until stopped (only meaningful with watch).
     passes: usize = 1,
 };
