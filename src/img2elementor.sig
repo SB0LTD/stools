@@ -1,8 +1,11 @@
-// stools img2elementor — reconstruct an Elementor template from a screenshot
-// or a live URL.
+// stools img2elementor — reconstruct an Elementor template from a screenshot.
+//
+// PNG-only. To reconstruct from a live URL (with real text, images, colors and
+// layout recovered from the DOM), use the `url2elementor` tool instead — it
+// drives a headless browser over the DevTools Protocol and reads the rendered
+// document, which a flat raster cannot recover.
 //
 // Pipeline (all pure-Sig, powered by zpm's image + elementor modules):
-//   0. if the input is a URL, render it to a PNG   (zpm web_capture -> headless browser)
 //   1. read a PNG file
 //   2. decode to RGBA8            (zpm png_decode)
 //   3. detect the page background (zpm image)
@@ -19,7 +22,6 @@
 //
 // Usage:
 //   img2elementor <input.png> [output.json]      reconstruct from a local image
-//   img2elementor <https://site> [output.json]   capture the URL, then reconstruct
 
 const std = @import("std");
 const png_decode = @import("png_decode");
@@ -27,7 +29,6 @@ const image = @import("image");
 const layout = @import("layout");
 const text_analyze = @import("text_analyze");
 const elementor = @import("elementor_document");
-const web_capture = @import("web_capture");
 
 // ── Static working buffers (no heap). Sized for up to ~4K-wide screenshots. ──
 const MAX_PIXELS: usize = 3840 * 2400;
@@ -52,6 +53,9 @@ pub fn main(init: std.process.Init) !void {
     var in_storage: [4096]u8 = undefined;
     var out_storage: [4096]u8 = undefined;
     const input_arg = copyArg(args.next(), &in_storage) orelse usage(init.io);
+    // A URL is not supported here — direct the operator to url2elementor, which
+    // reconstructs from the live DOM (real content), not a flat raster.
+    if (isUrl(input_arg)) urlNotSupported(init.io);
     // The second positional is the output path unless it's the --debug flag.
     var debug_dump = false;
     var out2_storage: [4096]u8 = undefined;
@@ -68,17 +72,8 @@ pub fn main(init: std.process.Init) !void {
 
     const cwd: std.Io.Dir = .cwd();
 
-    // ── Resolve the input to a local PNG path. A URL is rendered to a temp PNG
-    //    by a headless browser; a local path is used as-is. ──
-    var captured_storage: [4096]u8 = undefined;
-    const from_url = isUrl(input_arg);
-    const input_path = if (from_url)
-        captureUrl(init.io, input_arg, &captured_storage)
-    else
-        input_arg;
-    // Remove the temp capture on the way out (only when we created it). The
-    // capture path is absolute, so delete it via the absolute API.
-    defer if (from_url) std.Io.Dir.deleteFileAbsolute(init.io, input_path) catch {};
+    // PNG-only: the input is used as-is.
+    const input_path = input_arg;
 
     // ── Read the PNG ──
     const input = cwd.openFile(init.io, input_path, .{}) catch |err|
@@ -409,69 +404,12 @@ fn isUrl(s: []const u8) bool {
     return startsWithIgnoreCase(s, "http://") or startsWithIgnoreCase(s, "https://");
 }
 
-/// Heuristic: a path is Windows-style if it starts with a drive letter
-/// (e.g. "C:") or already contains a backslash.
-fn isWindowsPath(p: []const u8) bool {
-    if (p.len >= 2 and p[1] == ':') return true;
-    for (p) |c| {
-        if (c == '\\') return true;
-    }
-    return false;
-}
-
 fn startsWithIgnoreCase(s: []const u8, prefix: []const u8) bool {
     if (s.len < prefix.len) return false;
     for (s[0..prefix.len], prefix) |a, b| {
         if (lower(a) != lower(b)) return false;
     }
     return true;
-}
-
-/// Render a URL to a temp PNG via a headless browser and return the PNG path.
-/// The path lives in `storage`. Fatal on capture failure — there is nothing
-/// downstream can do without pixels.
-///
-/// The browser requires an ABSOLUTE screenshot path (a relative one is denied
-/// or silently ignored), so resolve the temp file against the current
-/// directory before handing it to web_capture.
-fn captureUrl(io: std.Io, url: []const u8, storage: []u8) []const u8 {
-    const name = "img2elementor-capture.png";
-    var cwd_buf: [3072]u8 = undefined;
-    const dir_len = std.process.currentPath(io, &cwd_buf) catch
-        std.process.fatal("cannot resolve working directory for capture", .{});
-    const dir = cwd_buf[0..dir_len];
-
-    // Join "<cwd>/<name>" into storage.
-    const sep_len: usize = 1;
-    if (dir.len + sep_len + name.len > storage.len) std.process.fatal("capture path too long", .{});
-    @memcpy(storage[0..dir.len], dir);
-    storage[dir.len] = if (isWindowsPath(dir)) '\\' else '/';
-    @memcpy(storage[dir.len + sep_len ..][0..name.len], name);
-    const out = storage[0 .. dir.len + sep_len + name.len];
-
-    std.debug.print("img2elementor: capturing {s} ...\n", .{url});
-    const shot = web_capture.capture(io, .{
-        .url = url,
-        .output_path = out,
-        .width = 1440,
-        .height = 2400,
-    });
-    if (!shot.ok) {
-        switch (shot.err) {
-            .no_browser_found => std.process.fatal(
-                "no headless browser found (install Chrome/Edge/Chromium) to capture a URL",
-                .{},
-            ),
-            .browser_error => std.process.fatal(
-                "browser '{s}' failed to capture the page (exit {d})",
-                .{ shot.browser_used, shot.exit_code },
-            ),
-            .spawn_failed => std.process.fatal("could not launch browser '{s}'", .{shot.browser_used}),
-            else => std.process.fatal("URL capture failed", .{}),
-        }
-    }
-    std.debug.print("img2elementor: captured via {s} -> {s}\n", .{ shot.browser_used, out });
-    return out;
 }
 
 fn copyArg(arg: ?[:0]const u8, storage: []u8) ?[]const u8 {
@@ -524,21 +462,6 @@ fn placeholderFor(font_px: u32) []const u8 {
 
 fn deriveOutputPath(input: []const u8, buf: []u8) []const u8 {
     const suffix = ".json";
-    // For a URL, name the file after the host (e.g. https://ela.sb0.tech/ ->
-    // ela.sb0.tech.json), so a URL run leaves a readable artifact.
-    if (isUrl(input)) {
-        const host = urlHost(input);
-        var n: usize = 0;
-        for (host) |c| {
-            if (n >= buf.len - suffix.len) break;
-            buf[n] = if (isSafeNameChar(c)) c else '_';
-            n += 1;
-        }
-        if (n == 0 or n + suffix.len > buf.len) return "out.json";
-        @memcpy(buf[n..][0..suffix.len], suffix);
-        return buf[0 .. n + suffix.len];
-    }
-
     // Replace a trailing .png/.PNG with .json; else append .json.
     var base_len = input.len;
     if (input.len >= 4) {
@@ -549,20 +472,6 @@ fn deriveOutputPath(input: []const u8, buf: []u8) []const u8 {
     @memcpy(buf[0..base_len], input[0..base_len]);
     @memcpy(buf[base_len..][0..suffix.len], suffix);
     return buf[0 .. base_len + suffix.len];
-}
-
-/// Extract the host portion of an http(s) URL (between "://" and the next "/").
-fn urlHost(url: []const u8) []const u8 {
-    var start: usize = 0;
-    if (startsWithIgnoreCase(url, "https://")) start = 8 else if (startsWithIgnoreCase(url, "http://")) start = 7;
-    var end = start;
-    while (end < url.len and url[end] != '/') : (end += 1) {}
-    return url[start..end];
-}
-
-fn isSafeNameChar(c: u8) bool {
-    return (c >= 'a' and c <= 'z') or (c >= 'A' and c <= 'Z') or
-        (c >= '0' and c <= '9') or c == '.' or c == '-' or c == '_';
 }
 
 fn eqIgnoreCase(a: []const u8, b: []const u8) bool {
@@ -588,10 +497,24 @@ fn report(io: std.Io, width: u32, height: u32, n: usize, out_path: []const u8, j
 fn usage(io: std.Io) noreturn {
     _ = io;
     std.debug.print(
-        \\usage: img2elementor <input> [output.json]
-        \\  <input> is a local .png path or an http(s):// URL.
-        \\  A URL is rendered to a PNG by a headless browser (Chrome/Edge/Chromium),
-        \\  then reconstructed into an Elementor template.
+        \\usage: img2elementor <input.png> [output.json] [--debug]
+        \\  <input.png> is a local PNG screenshot.
+        \\  For a live URL, use `url2elementor <https://site>` — it reconstructs
+        \\  from the rendered DOM (real text, images, colors), which a flat
+        \\  raster screenshot cannot recover.
+        \\
+    , .{});
+    std.process.exit(2);
+}
+
+/// The input looked like a URL. img2elementor is PNG-only; point the operator
+/// at the DOM-based tool, which is the right one for a live page.
+fn urlNotSupported(io: std.Io) noreturn {
+    _ = io;
+    std.debug.print(
+        \\img2elementor is PNG-only and does not accept URLs.
+        \\  Use:  url2elementor <https://site> [output.json]
+        \\  (it reconstructs from the live DOM — real text, images, colors, layout.)
         \\
     , .{});
     std.process.exit(2);

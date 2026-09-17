@@ -74,6 +74,11 @@ fn printUsage() void {
         \\  hash <text>       Print the FNV-1a hash of the given text
         \\  now               Print a monotonic timestamp (nanoseconds)
         \\
+        \\Standalone tools (separate binaries in the same bin/ dir):
+        \\  img2elementor <input.png>   Reconstruct an Elementor template from a PNG
+        \\  url2elementor <https://url> Reconstruct an Elementor template from a live
+        \\                              page's DOM (real text, colors, images, layout)
+        \\
         \\slicker flags (default: one detect-only single-region color scan):
         \\  --template FILE.png Match this button/icon image across all windows
         \\  --score N           Min template match score, per-mille (default 700)

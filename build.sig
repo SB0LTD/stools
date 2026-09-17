@@ -118,13 +118,9 @@ pub fn build(ctx: *sig_build.Build_Context) !void {
     try wire(ctx, text_analyze, "image", ZPM ++ "src/image/image.sig");
     _ = try ctx.addModule("elementor_document", ZPM ++ "src/elementor/document.sig");
 
-    // URL input: img2elementor renders a live page to a PNG by driving a
-    // headless browser. That capability is general-purpose and lives in zpm
-    // (web_capture -> subprocess). Register both and wire the nested import.
-    _ = try ctx.addModule("subprocess", ZPM ++ "src/platform/subprocess.sig");
-    const web_capture = try ctx.addModule("web_capture", ZPM ++ "src/platform/web_capture.sig");
-    try wire(ctx, web_capture, "subprocess", ZPM ++ "src/platform/subprocess.sig");
-
+    // img2elementor is PNG-only: it consumes just the image-analysis +
+    // elementor modules. (URL/DOM reconstruction lives in url2elementor below,
+    // which is the tool that drives a headless browser.)
     const img_imports = [_]sig_build.Import_Entry{
         importEntry("png_decode", ZPM ++ "src/image/png_decode.sig"),
         importEntry("inflate", ZPM ++ "src/core/inflate.sig"),
@@ -132,8 +128,6 @@ pub fn build(ctx: *sig_build.Build_Context) !void {
         importEntry("layout", ZPM ++ "src/image/layout.sig"),
         importEntry("text_analyze", ZPM ++ "src/image/text_analyze.sig"),
         importEntry("elementor_document", ZPM ++ "src/elementor/document.sig"),
-        importEntry("web_capture", ZPM ++ "src/platform/web_capture.sig"),
-        importEntry("subprocess", ZPM ++ "src/platform/subprocess.sig"),
     };
     const img2elementor = try ctx.addCompileStep(.{
         .source_path = "src/img2elementor.sig",
@@ -147,6 +141,39 @@ pub fn build(ctx: *sig_build.Build_Context) !void {
         .win32_resource = app_rc,
     });
     try ctx.addDependency(install, img2elementor);
+
+    // ── url2elementor: reconstruct an Elementor template from a live URL ──
+    // Drives a headless browser over the DevTools Protocol and reads the
+    // rendered DOM. The whole transport is pure-Sig and lives in zpm:
+    //   url2elementor -> cdp -> { subprocess, websocket }
+    //                 -> elementor_dom_import
+    // Register the modules and wire cdp's nested imports so the flat registry
+    // resolves cdp -> subprocess and cdp -> websocket.
+    _ = try ctx.addModule("subprocess", ZPM ++ "src/platform/subprocess.sig");
+    _ = try ctx.addModule("websocket", ZPM ++ "src/net/websocket.sig");
+    const u2e_cdp = try ctx.addModule("cdp", ZPM ++ "src/platform/cdp.sig");
+    try wire(ctx, u2e_cdp, "subprocess", ZPM ++ "src/platform/subprocess.sig");
+    try wire(ctx, u2e_cdp, "websocket", ZPM ++ "src/net/websocket.sig");
+    _ = try ctx.addModule("elementor_dom_import", ZPM ++ "src/elementor/dom_import.sig");
+
+    const u2e_imports = [_]sig_build.Import_Entry{
+        importEntry("cdp", ZPM ++ "src/platform/cdp.sig"),
+        importEntry("subprocess", ZPM ++ "src/platform/subprocess.sig"),
+        importEntry("websocket", ZPM ++ "src/net/websocket.sig"),
+        importEntry("elementor_dom_import", ZPM ++ "src/elementor/dom_import.sig"),
+    };
+    const url2elementor = try ctx.addCompileStep(.{
+        .source_path = "src/url2elementor.sig",
+        .output_name = "url2elementor",
+        .cache_dir = ctx.cache_dir[0..ctx.cache_dir_len],
+        .optimize = ctx.optimize,
+        .target = null,
+        .imports = &u2e_imports,
+        .compiler_path = "",
+        // Native app icon (icon id 1 → src/stools.ico).
+        .win32_resource = app_rc,
+    });
+    try ctx.addDependency(install, url2elementor);
 
     const test_all = try ctx.addStep("test", "Run the project tests", &noop);
     const tests = try ctx.addTestStep(.{ .name = "test-source", .source_path = "src/main.sig", .imports = &app_imports });
@@ -188,8 +215,8 @@ pub fn build(ctx: *sig_build.Build_Context) !void {
         try wire(ctx, ui_icon, "gl", ZPM ++ "src/platform/gl.sig");
         try wire(ctx, ui_icon, "win32", win32_path);
 
-        // subprocess is already registered above (for web_capture); it needs no
-        // custom nested imports (only std + builtin).
+        // subprocess is already registered above (for cdp/url2elementor); the
+        // launcher just references it in its import table below.
 
         const ui_imports = [_]sig_build.Import_Entry{
             importEntry("win32", win32_path),

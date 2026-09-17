@@ -35,7 +35,8 @@ sig build run      # build and run
 ```
 
 The compiled binaries land in `sig-out/bin/` (`.exe` on Windows): the `stools`
-dispatcher, the `img2elementor` tool, and `stools-ui` — the launcher GUI.
+dispatcher, the `img2elementor` and `url2elementor` tools, and `stools-ui` —
+the launcher GUI.
 
 ### Platforms
 
@@ -159,39 +160,81 @@ The suite ships as focused binaries alongside the `stools` dispatcher:
 | --- | --- |
 | `stools` | Suite dispatcher + `slicker`, a config-driven visual UI-automation engine (scans all windows, detects a color signature, opt-in clicks + verifies). |
 | `stools-ui` | Translucent launcher GUI — renders the data-driven command registry into a form and launches any tool via subprocess, streaming its output. |
-| `img2elementor` | Reconstruct an editable Elementor template from a screenshot or a live URL. |
+| `img2elementor` | Reconstruct an Elementor template from a **PNG screenshot** (geometry + placeholders). |
+| `url2elementor` | Reconstruct an Elementor template from a **live URL's rendered DOM** — real text, colors, images, and layout. |
+
+There are two reconstruction tools because a flat screenshot and a live page
+are fundamentally different inputs. `img2elementor` works from a raster and can
+only recover *shape* (it emits placeholder text and empty image boxes).
+`url2elementor` drives a real browser and reads the rendered document, so it
+recovers the *actual content*. Use `url2elementor` for a live site;
+`img2elementor` when all you have is an image.
+
+### url2elementor
+
+```sh
+url2elementor <https://site> [output.json] [--port N] [--keep-open]
+```
+
+Reconstructs an Elementor template from a live page by reading its **rendered
+DOM** — the reliable way to recover what a flat screenshot loses. It:
+
+1. launches a headless browser (Chrome/Edge/Chromium/Brave) with the remote
+   debugging port open,
+2. attaches to the page target over a **pure-Sig WebSocket**,
+3. navigates to the URL and waits for load (plus a short settle for
+   client-rendered pages),
+4. evaluates an in-page extractor that walks the visual box tree and builds the
+   Elementor element array from **computed styles, geometry, real text, and
+   image URLs**, and
+5. writes a valid Elementor template JSON — importable via **Templates →
+   Import**.
+
+The result carries the page's real words, colors, font sizes, alignment,
+buttons, and section layout (bands become containers; side-by-side elements
+become flex rows). Inline `<svg>` icons are captured as data URIs; `<img>` and
+CSS `background-image` sources are captured as image widgets (side-load them
+into the media library on import to render them locally).
+
+Honest limits: exact pixel spacing and custom webfonts are not reproduced (the
+page falls back to the theme font), and heavily canvas- or shadow-DOM-driven
+sites expose less to the extractor. Geometry, color, text, and structure are the
+reliable output.
+
+- `--port N` remote debugging port for the headless browser (default 9222)
+- `--keep-open` leave the browser running after extraction (debugging)
+
+The whole transport — WebSocket (RFC 6455), the Chrome DevTools Protocol client,
+and the DOM→Elementor mapping — is pure Sig and lives in
+[zpm](https://github.com/SB0LTD/zpm) (`net/websocket`, `platform/cdp`,
+`elementor/dom_import`). It speaks only to `std.Io.net`, so it is cross-platform
+by construction (no OS-specific code, no libc).
 
 ### img2elementor
 
 ```sh
-img2elementor <input.png>     [output.json] [--debug]   # from a local image
-img2elementor <https://site>  [output.json] [--debug]   # capture the URL first
+img2elementor <input.png> [output.json] [--debug]   # from a local screenshot
 ```
 
-Given a URL, it renders the page to a PNG with a headless browser
-(Chrome/Edge/Chromium/Brave, whichever is installed) and then runs the same
-pipeline. Given a local `.png`, it uses it directly.
-
-The pipeline decodes the PNG, detects the page background, segments the layout
-into rows and columns, estimates per-region typography (size, weight, color,
-alignment), and writes a valid Elementor template JSON — importable via
-**Templates → Import**. It reconstructs the page *structure*: a horizontal nav
-row, side-by-side hero columns (text beside a photo), headings, buttons, and
-image blocks, with measured colors and font sizes.
+PNG-only. (For a live URL, use `url2elementor` — a flat raster cannot recover
+real text or images.) The pipeline decodes the PNG, detects the page
+background, segments the layout into rows and columns, estimates per-region
+typography (size, weight, color, alignment), and writes a valid Elementor
+template JSON — importable via **Templates → Import**. It reconstructs the page
+*structure*: a horizontal nav row, side-by-side hero columns, headings,
+buttons, and image blocks, with measured colors and font sizes.
 
 What it can and can't recover: geometry, colors, font sizes, alignment, and the
 row/column layout are reconstructed faithfully. Exact glyph text and photo
 *content* cannot be recovered from a flat raster, so text is emitted as
 size-keyed placeholders (`"Multi-line heading text"`, `"Body text"`) and images
-as empty boxes sized to the region — the operator fills those in. Fidelity also
-depends on the capture being fully rendered; a live capture taken before fonts
-or images settle reconstructs less detail than a complete one.
+as empty boxes sized to the region — the operator fills those in.
 
 `--debug` prints the detected regions (kind, bounds, line count, font height,
 density) to stderr — useful for tuning.
 
-Entirely pure-Sig: PNG decode, image analysis, URL capture, and JSON emission
-all live in [zpm](https://github.com/SB0LTD/zpm).
+Entirely pure-Sig: PNG decode, image analysis, and JSON emission all live in
+[zpm](https://github.com/SB0LTD/zpm).
 
 ## Project layout
 
@@ -202,7 +245,8 @@ stools/
 ├─ src/
 │  ├─ main.sig          # entry point + command dispatch + slicker CLI
 │  ├─ slicker.sig       # visual UI-automation engine (scan/detect/click/watch)
-│  ├─ img2elementor.sig # screenshot → Elementor template
+│  ├─ img2elementor.sig # PNG screenshot → Elementor template
+│  ├─ url2elementor.sig # live URL → Elementor template (via headless browser DOM)
 │  ├─ tool_schema.sig   # data-driven registry of commands + flags (drives the UI)
 │  ├─ launch.sig        # schema → argv → subprocess launch (generic)
 │  ├─ launcher.sig      # stools-ui: translucent launcher GUI
@@ -218,6 +262,19 @@ Detection and capture live in [zpm](https://github.com/SB0LTD/zpm):
 `ui_detect` (color-region + template/chamfer matching, Layer 0) and `screencap`
 (window enumerate/capture/click per OS — Windows Graphics Capture, CoreGraphics,
 Xlib, and the SB0 Nexus client).
+
+The `url2elementor` web-automation stack is also pure-Sig zpm, built on
+`std.Io.net` so it is cross-platform with no OS-specific code:
+
+- `net/websocket` — an RFC 6455 WebSocket client (handshake, framing, masking,
+  fragmentation, ping/pong, close).
+- `platform/cdp` — a Chrome DevTools Protocol client: launches a headless
+  browser, discovers its page target over HTTP, and drives it (navigate +
+  `Runtime.evaluate`) over the WebSocket.
+- `elementor/dom_import` — the in-page extractor JavaScript plus the Elementor
+  document envelope assembler.
+
+The Elementor template builder (`elementor/document`) is shared by both tools.
 
 ## Contributing
 

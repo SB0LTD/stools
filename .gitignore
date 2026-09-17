@@ -4,3 +4,20 @@
 sig-out/
 zig-out/
 config.json
+
+# Build/scratch logs
+*.log
+nbuild.txt
+xbuild.txt
+rjobs.json
+rlog.txt
+
+# The WordPress + Elementor demo is generated locally, not vendored:
+# only the reconstructed templates + the slim setup scripts are tracked.
+examples/**/wp/
+examples/**/wp-cli.phar
+examples/**/.u2e-profile*/
+examples/**/template/
+examples/**/*.html
+examples/**/*.png
+examples/**/*.zip

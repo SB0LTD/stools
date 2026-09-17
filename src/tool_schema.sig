@@ -115,6 +115,8 @@ pub const Binary = enum {
     stools,
     /// The standalone `img2elementor` binary. No subcommand.
     img2elementor,
+    /// The standalone `url2elementor` binary. No subcommand.
+    url2elementor,
 };
 
 pub const MAX_FLAGS = 24;
@@ -265,18 +267,35 @@ pub fn buildRegistry() [MAX_COMMANDS]Command {
     );
     n += 1;
 
-    // ── img2elementor: screenshot/URL -> Elementor template ──
+    // ── img2elementor: screenshot (PNG) -> Elementor template ──
     reg[n] = mkCommand(
         "img2elementor",
-        "Reconstruct an editable Elementor template from a screenshot or URL",
+        "Reconstruct an Elementor template from a PNG screenshot (geometry + placeholders)",
         .cyan,
         .img2elementor,
         "",
         .never,
         &.{
-            positional("Input (PNG path or URL)", "A local .png or an http(s):// URL to capture"),
+            positional("Input PNG path", "A local .png screenshot"),
             textFlag("", "Output JSON path", "Where to write the template (optional)", .path),
             toggle("--debug", "Debug regions", "Print detected regions to stderr", false),
+        },
+    );
+    n += 1;
+
+    // ── url2elementor: live URL -> Elementor template (real DOM) ──
+    reg[n] = mkCommand(
+        "url2elementor",
+        "Reconstruct an Elementor template from a live URL — real text, colors, images, layout",
+        .cyan,
+        .url2elementor,
+        "",
+        .never,
+        &.{
+            positional("URL (https://...)", "The live page to render and reconstruct"),
+            textFlag("", "Output JSON path", "Where to write the template (optional)", .path),
+            intFlag("--port", "Debug port", "Remote debugging port for the headless browser", 1024, 65535, 1, 9222, false),
+            toggle("--keep-open", "Keep browser open", "Leave the browser running after extraction (debugging)", false),
         },
     );
     n += 1;
@@ -330,7 +349,7 @@ pub fn buildRegistry() [MAX_COMMANDS]Command {
 
 /// Number of populated commands in a registry built by buildRegistry().
 pub fn commandCount() usize {
-    return 5;
+    return 6;
 }
 
 fn mkChoice(label: []const u8, help: []const u8, comptime choices: []const Choice) Flag {
@@ -365,9 +384,10 @@ pub fn runsForever(cmd: *const Command) bool {
 
 test "registry builds with the expected command count" {
     const reg = buildRegistry();
-    try std.testing.expectEqual(@as(usize, 5), commandCount());
+    try std.testing.expectEqual(@as(usize, 6), commandCount());
     try std.testing.expectEqualStrings("slicker", reg[0].name);
     try std.testing.expectEqualStrings("img2elementor", reg[1].name);
+    try std.testing.expectEqualStrings("url2elementor", reg[2].name);
 }
 
 test "slicker exposes its full flag surface" {
