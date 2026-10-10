@@ -78,6 +78,8 @@ fn printUsage() void {
         \\  img2elementor <input.png>   Reconstruct an Elementor template from a PNG
         \\  url2elementor <https://url> Reconstruct an Elementor template from a live
         \\                              page's DOM (real text, colors, images, layout)
+        \\  pdf2audiobook <in.pdf|txt>  Turn a PDF or TXT into a crisp WAV audiobook
+        \\                              (verified text + native custom-voice narration)
         \\
         \\slicker flags (default: one detect-only single-region color scan):
         \\  --template FILE.png Match this button/icon image across all windows

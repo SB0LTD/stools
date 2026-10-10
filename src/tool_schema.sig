@@ -117,6 +117,8 @@ pub const Binary = enum {
     img2elementor,
     /// The standalone `url2elementor` binary. No subcommand.
     url2elementor,
+    /// The standalone `pdf2audiobook` binary. No subcommand.
+    pdf2audiobook,
 };
 
 pub const MAX_FLAGS = 24;
@@ -300,6 +302,41 @@ pub fn buildRegistry() [MAX_COMMANDS]Command {
     );
     n += 1;
 
+    // ── pdf2audiobook: PDF/TXT -> verified text -> native TTS -> WAV ──
+    reg[n] = mkCommand(
+        "pdf2audiobook",
+        "Turn a PDF or TXT into a crisp audiobook — verified text, real neural Qwen3-TTS voice (GPU)",
+        .mint,
+        .pdf2audiobook,
+        "",
+        .never,
+        &.{
+            positional("Input PDF/TXT path", "A local .pdf or .txt file to read aloud"),
+            textFlag("", "Output WAV path", "Where to write the audiobook (optional)", .path),
+            mkChoice(
+                "Language",
+                "Codec language the model reads in (10 supported)",
+                &.{
+                    .{ .label = "English", .token = "" },
+                    .{ .label = "Chinese", .token = "--lang-chinese" },
+                    .{ .label = "German", .token = "--lang-german" },
+                    .{ .label = "Spanish", .token = "--lang-spanish" },
+                    .{ .label = "French", .token = "--lang-french" },
+                    .{ .label = "Japanese", .token = "--lang-japanese" },
+                },
+            ),
+            intFlag("--temperature", "Temperature (×100)", "Sampling temperature; higher = more varied prosody", 10, 200, 5, 90, false),
+            intFlag("--top-k", "Top-k", "Sampling top-k candidates, 1..50", 1, 50, 1, 50, false),
+            intFlag("--rep-penalty", "Repetition penalty (×100)", "Discourages repetition/loops", 100, 200, 1, 105, false),
+            toggle("--no-think", "Disable think", "Turn off the model's think prefix", false),
+            intFlag("--max-frames", "Max frames", "Cap the render; 1 frame = 80 ms (0 = whole text)", 0, 100000, 10, 0, false),
+            toggle("--no-normalize", "Skip normalize", "Keep the raw (quiet) level instead of peak-normalizing", false),
+            textFlag("--speaker", "Speaker (CustomVoice)", "Named speaker — needs a CustomVoice model (Base has none)", .text),
+            toggle("--dump-text", "Dump verified text", "Write the verified, speakable text (.txt) and skip synthesis", false),
+        },
+    );
+    n += 1;
+
     // ── hash: FNV-1a of text ──
     reg[n] = mkCommand(
         "hash",
@@ -349,7 +386,7 @@ pub fn buildRegistry() [MAX_COMMANDS]Command {
 
 /// Number of populated commands in a registry built by buildRegistry().
 pub fn commandCount() usize {
-    return 6;
+    return 7;
 }
 
 fn mkChoice(label: []const u8, help: []const u8, comptime choices: []const Choice) Flag {
@@ -384,10 +421,11 @@ pub fn runsForever(cmd: *const Command) bool {
 
 test "registry builds with the expected command count" {
     const reg = buildRegistry();
-    try std.testing.expectEqual(@as(usize, 6), commandCount());
+    try std.testing.expectEqual(@as(usize, 7), commandCount());
     try std.testing.expectEqualStrings("slicker", reg[0].name);
     try std.testing.expectEqualStrings("img2elementor", reg[1].name);
     try std.testing.expectEqualStrings("url2elementor", reg[2].name);
+    try std.testing.expectEqualStrings("pdf2audiobook", reg[3].name);
 }
 
 test "slicker exposes its full flag surface" {

@@ -178,6 +178,7 @@ pub fn plan(cmd: *const schema.Command, self_dir: []const u8, scratch: []u8) Pla
         .stools => "stools",
         .img2elementor => "img2elementor",
         .url2elementor => "url2elementor",
+        .pdf2audiobook => "pdf2audiobook",
     };
     resolveBinary(&p, self_dir, bin_name);
     if (p.exe_len == 0) {
@@ -297,7 +298,7 @@ test "click without target is blocked" {
 
 test "hash positional is required and emitted verbatim" {
     var reg = schema.buildRegistry();
-    const hash = &reg[3]; // slicker, img2elementor, url2elementor, hash
+    const hash = &reg[4]; // slicker, img2elementor, url2elementor, pdf2audiobook, hash
     var scratch: [SCRATCH]u8 = undefined;
     // Empty -> missing_positional.
     var p = plan(hash, "/usr/bin", &scratch);

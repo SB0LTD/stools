@@ -35,8 +35,8 @@ sig build run      # build and run
 ```
 
 The compiled binaries land in `sig-out/bin/` (`.exe` on Windows): the `stools`
-dispatcher, the `img2elementor` and `url2elementor` tools, and `stools-ui` —
-the launcher GUI.
+dispatcher, the `img2elementor`, `url2elementor`, and `pdf2audiobook` tools, and
+`stools-ui` — the launcher GUI.
 
 ### Platforms
 
@@ -162,6 +162,7 @@ The suite ships as focused binaries alongside the `stools` dispatcher:
 | `stools-ui` | Translucent launcher GUI — renders the data-driven command registry into a form and launches any tool via subprocess, streaming its output. |
 | `img2elementor` | Reconstruct an Elementor template from a **PNG screenshot** (geometry + placeholders). |
 | `url2elementor` | Reconstruct an Elementor template from a **live URL's rendered DOM** — real text, colors, images, and layout. |
+| `pdf2audiobook` | Turn a **PDF or TXT** into a crisp **WAV audiobook** — verified text (junk stripped) read by a native Qwen3-conditioned narrator. |
 
 There are two reconstruction tools because a flat screenshot and a live page
 are fundamentally different inputs. `img2elementor` works from a raster and can
@@ -236,6 +237,114 @@ density) to stderr — useful for tuning.
 Entirely pure-Sig: PNG decode, image analysis, and JSON emission all live in
 [zpm](https://github.com/SB0LTD/zpm).
 
+## pdf2audiobook
+
+```sh
+pdf2audiobook <input.pdf|input.txt> [output.wav] [flags]
+```
+
+Turns a PDF or plain-text file into a crisp, full **audiobook** — a 24 kHz mono
+WAV — entirely offline. The pipeline is pure-Sig with no allocator and no
+network (the model fetch is the only optional network step):
+
+1. **Read** the input. A `.pdf` is parsed and its text extracted page-by-page;
+   a `.txt` is used directly.
+2. **Verify** — decide what should actually be *read aloud*. This is the step
+   that keeps the narration clean: it drops page numbers, running
+   headers/footers, table-of-contents dot leaders, bare URLs / DOIs / emails,
+   and table/figure/rule noise, and it rejoins words hyphenated across a line
+   break (`inter-\nnational` → `international`). Only real prose survives.
+3. **Narrate** — an English grapheme-to-phoneme frontend drives a native
+   source-filter synthesizer (a glottal source shaped by formant resonators),
+   producing steady, intelligible speech with click-free phone transitions.
+4. **Write** a valid PCM16 `RIFF`/`WAVE` file.
+
+```sh
+pdf2audiobook book.pdf                          # -> book.wav (GPU when present)
+pdf2audiobook book.pdf out.wav --lang german --temperature 80
+pdf2audiobook notes.txt --dump-text             # write the verified text, no audio
+pdf2audiobook book.pdf --cpu                    # force the exact CPU decode path
+```
+
+- `--dump-text` write the verified, speakable text (`.txt`) and skip synthesis
+- `--cpu` force the exact CPU decoder (disable GPU acceleration; for benchmarking)
+
+### The real neural Qwen3-TTS voice (GPU-accelerated)
+
+`pdf2audiobook` synthesizes with the genuine **Qwen3-TTS-12Hz-0.6B** neural
+model — there is no fallback narrator. It requires the model artifacts in the
+git-ignored `./models/` directory:
+
+```
+models/talker.sb0m      Talker + code predictor + codec heads (402 tensors)
+models/codec.sb0m       RVQ + sliding transformer + vocoder    (271 tensors)
+models/tokenizer.gguf   Qwen3 BPE tokenizer
+```
+
+The pipeline is the real thing: 28-layer Talker → 5-layer code predictor →
+16-code acoustic frames → split-RVQ + sliding transformer → causal ConvNeXt +
+SnakeBeta vocoder → 24 kHz PCM. The whole stack is pure-Sig zpm
+([`@zpm/tts`](https://github.com/SB0LTD/zpm)).
+
+**GPU (full custom-CUDA-kernel decode).** When a CUDA device is present the
+entire decode pipeline runs on the GPU, used automatically with a clean CPU
+fallback (`--cpu` forces the exact CPU path). The whole thing is still pure Sig:
+there is no build-time CUDA dependency — kernels are compiled from embedded
+CUDA-C to cubin at load time via **NVRTC** (`@zpm/matmul` cuda backend), and the
+Talker, code predictor, codec transformer, and vocoder each run **GPU-resident**
+— weights dequantized to f32 in VRAM once, activations kept on the device across
+all layers, matmuls on cuBLAS and everything else (rmsNorm, RoPE, grouped-query
+& sliding-window attention, SiLU/gate, SnakeBeta, layerNorm, GELU, causal /
+transposed / depthwise conv1d, residuals) on hand-written kernels
+(`@zpm/tts-kernels`). This eliminates the per-matmul host round-trips that used
+to dominate. Because the GPU path is full **f32** while the CPU path uses Q4
+weights × Q8 activations, the GPU output is actually the more faithful of the
+two. On an 8 GB card the f32 weights use most of the VRAM; loading + uploading
+them takes ~45–50 s once, up front.
+
+**Voice controls — exactly what the model supports:**
+
+- `--lang NAME` one of 10 languages: english, chinese, german, spanish, italian,
+  portuguese, japanese, korean, french, russian (default english)
+- `--temperature N` sampling temperature ×100 (default 90 = 0.90); higher = more
+  varied prosody
+- `--top-k N` sampling top-k, 1..50 (default 50)
+- `--rep-penalty N` repetition penalty ×100 (default 105 = 1.05)
+- `--think` / `--no-think` toggle the model's think prefix
+- `--speaker NAME` a named CustomVoice speaker. The **Base** checkpoint has no
+  speaker table, so named speakers (Vivian, Serena, Ryan, …) require a Qwen3-TTS
+  **CustomVoice** model; the flag is reported and ignored otherwise.
+- `--max-frames N` cap the render (1 frame = 80 ms; 0 = the whole text)
+- `--dump-text` write the verified text and stop; `--no-normalize` keep the raw
+  (quiet) level instead of peak-normalizing.
+
+**Honest performance** (measured on an RTX 5070 Laptop, SM 120):
+
+| path | per frame (80 ms audio) | vs realtime |
+| --- | --- | --- |
+| CPU (`--cpu`) | ~9.4 s | ~118x slower |
+| GPU (default)  | ~0.14 s | ~1.8x slower |
+
+That is roughly a **60–65x** decode speedup from the GPU port. It is fast enough
+for short passages and per-chapter renders in reasonable wall time, but it is
+**not** realtime yet: a full-length book is still many hours (a 430 k-char book
+≈ 25 h), and model load adds a one-time ~45–50 s. Getting to realtime would need
+fused/batched attention kernels and keeping the sampler on the GPU. The output
+is peak-normalized so it is clearly audible.
+
+```sh
+pdf2audiobook book.pdf book.wav
+pdf2audiobook book.pdf --lang german --temperature 80
+pdf2audiobook notes.txt --dump-text
+```
+
+The reusable pieces live in [zpm](https://github.com/SB0LTD/zpm): the neural
+`tts` stack (Talker/predictor/codec/vocoder over the SB0M model container) with
+its optional `tts-gpu` cuBLAS backend, PDF text extraction (`pdf_render/text`),
+the PCM16 WAV writer (`wav`), the Qwen BPE tokenizer (`tokenizer`), and the GGUF
+reader (`gguf`). The tool itself is only the CLI, the content verifier, sentence
+chunking, output normalization, and model orchestration.
+
 ## Project layout
 
 ```
@@ -247,6 +356,7 @@ stools/
 │  ├─ slicker.sig       # visual UI-automation engine (scan/detect/click/watch)
 │  ├─ img2elementor.sig # PNG screenshot → Elementor template
 │  ├─ url2elementor.sig # live URL → Elementor template (via headless browser DOM)
+│  ├─ pdf2audiobook.sig # PDF/TXT → verified text → native narration → WAV audiobook
 │  ├─ tool_schema.sig   # data-driven registry of commands + flags (drives the UI)
 │  ├─ launch.sig        # schema → argv → subprocess launch (generic)
 │  ├─ launcher.sig      # stools-ui: translucent launcher GUI

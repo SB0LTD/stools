@@ -5,6 +5,87 @@ All notable changes to **stools** are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+- **`pdf2audiobook` — full GPU (custom CUDA kernel) neural decode.** The entire
+  Qwen3-TTS decode pipeline now runs GPU-resident when a CUDA device is present:
+  the 28-layer Talker, 5-layer code predictor, 8-layer codec transformer, and
+  ConvNeXt/SnakeBeta vocoder all keep their weights (dequantized to f32) and
+  activations in VRAM across every layer. matmuls run on cuBLAS; rmsNorm, RoPE,
+  grouped-query & sliding-window attention, SiLU/gate, SnakeBeta, layerNorm,
+  GELU, and causal/transposed/depthwise conv1d run on hand-written CUDA kernels
+  (new zpm `tts-kernels`). Kernels are compiled from embedded CUDA-C to cubin at
+  load time via **NVRTC** — no build-time CUDA toolkit dependency, and it
+  degrades cleanly to the exact CPU path (forceable with `--cpu`). This removes
+  the per-matmul host round-trips and yields a ~60–65x decode speedup
+  (~9.4 s/frame CPU → ~0.14 s/frame GPU on an RTX 5070 Laptop; still ~1.8x
+  slower than realtime). Because the GPU path is full f32 while the CPU path is
+  Q4×Q8, the GPU output is the more faithful of the two. New `--cpu` flag.
+- **`pdf2audiobook`** — turn a **PDF or TXT** into a crisp, full **audiobook**
+  (24 kHz mono WAV). Entirely native and offline (pure-Sig zpm, no allocator):
+  - **Text extraction**: PDFs are decoded page-by-page — content streams are
+    FlateDecoded and text is pulled from the `Tj`/`TJ`/`'`/`"` operators, with
+    escapes and kerning gaps handled (new zpm `pdf_render.text`). TXT is read
+    directly.
+  - **A content verifier** decides what actually gets read: it drops page
+    numbers, running headers/footers, table-of-contents dot leaders, bare
+    URLs/DOIs/emails, and layout/table noise, and rejoins words hyphenated
+    across line breaks — so only real prose reaches the synthesizer.
+  - **Native narration**: an English grapheme-to-phoneme frontend drives a
+    source-filter synthesizer (glottal source + formant resonators) that reads
+    the text clearly, with `--voice male|female|neutral` and `--rate`. New zpm
+    Layer-0 modules `tts_voice` (synthesizer) and `wav` (PCM16 RIFF/WAVE writer).
+  - **Qwen3 0.6B custom voice**: with `--fetch` the tool downloads a Qwen3 0.6B
+    GGUF into a git-ignored `./models/` and conditions the narrator (pitch,
+    pacing, timbre) from it; it degrades cleanly to the built-in voice when the
+    model is absent. Honest limit: the GGUF is a text/decoder model, so it
+    *shapes* the native synthesizer rather than emitting waveform samples — this
+    is not a neural vocoder. `--dump-text` writes the verified text and skips
+    synthesis.
+  - Registered in the data-driven registry, so it appears in **`stools-ui`** as
+    a form (input path, output path, voice, rate, fetch, model, dump-text) with
+    no launcher changes.
+  - Usage: `pdf2audiobook <input.pdf|input.txt> [output.wav] [flags]`.
+- **Real neural Qwen3-TTS voice for `pdf2audiobook`.** When the native model
+  artifacts are present in `./models` (`talker.sb0m` + `codec.sb0m` +
+  `tokenizer.gguf`), the tool synthesizes with the genuine
+  Qwen3-TTS-12Hz-0.6B pipeline — 28-layer Talker → 5-layer code predictor →
+  split-RVQ + sliding transformer → causal ConvNeXt/SnakeBeta vocoder → 24 kHz
+  PCM — instead of the built-in narrator. The whole decoder is the new pure-Sig
+  `@zpm/tts` stack, extracted into zpm; `src/tts_neural.sig` is a thin driver
+  that loads the artifacts and renders text sentence-by-sentence. Flags:
+  `--neural` (force it), `--no-neural` (force the instant narrator),
+  `--max-frames N` (bound the neural excerpt, 1 frame = 80 ms). Honest note: the
+  decoder is exact but ~644x slower than realtime unaccelerated, so it renders a
+  bounded excerpt while the built-in narrator reads the whole book.
+
+### Changed
+- **`pdf2audiobook` is now neural-only and GPU-accelerated.** The built-in
+  source-filter narrator was removed — the tool synthesizes exclusively with the
+  real neural Qwen3-TTS voice and requires the model artifacts in `./models`.
+  When a CUDA device is present the matmul weights run on the GPU via cuBLAS
+  (zpm `@zpm/tts-gpu`), with a clean CPU fallback. Output is peak-normalized so
+  it is clearly audible, and leading prompt silence is trimmed.
+- **Voice controls the model supports** are exposed on the CLI and in the
+  `stools-ui` form: `--lang` (10 languages), `--temperature`, `--top-k`,
+  `--rep-penalty`, `--think`/`--no-think`, and `--speaker` (honestly reported as
+  needing a CustomVoice checkpoint — the Base model has no speaker table).
+  `--max-frames` bounds a render; `--no-normalize` keeps the raw level.
+
+### Fixed
+- zpm `@zpm/pdf-render`: page detection missed the tight `/Type/Page` syntax and
+  text extraction read the page object's (absent) stream instead of resolving
+  `/Contents`. Both are fixed in zpm, so `pdf2audiobook` now extracts real text
+  from more PDFs (e.g. Ghostscript/qpdf output); positioning operators
+  (`Td`/`TD`/`Tm`) now insert word breaks so runs don't glue together.
+
+### Fixed
+- zpm `platform/cdp`: three `Page` methods (`evaluate`, `call`, `close`) still
+  took an `io` parameter they no longer use after the WebSocket transport
+  unification, which failed the build under Sig 0.6.0's unused-parameter check.
+  The parameters are now explicitly discarded, keeping the call sites unchanged.
+
 ## [0.1.0] - 2026-09-15
 
 ### Added

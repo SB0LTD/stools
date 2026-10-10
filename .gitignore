@@ -5,6 +5,12 @@ sig-out/
 zig-out/
 config.json
 
+# Neural TTS model weights + input PDFs for pdf2audiobook are local, not
+# vendored: the Qwen3-TTS SB0M artifacts + tokenizer live in ./models (fetched
+# or packed on first run), and example/test PDFs are copyrighted source books.
+/models/
+examples/pdfs/
+
 # Build/scratch logs
 *.log
 nbuild.txt

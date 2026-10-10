@@ -6,12 +6,21 @@
 // page's real text, images, colors, fonts, and layout. That is what makes the
 // reconstruction look like the source rather than a wireframe.
 //
+// The reconstruction is a *hybrid*: the rendered page is decomposed into
+// native, editable Elementor widgets that carry the source elements' original
+// CSS classes and ids, and the page's own CSS + JS are folded into the
+// template. Because the widgets keep the original class hooks and the original
+// stylesheet + scripts run against them at one document level (no iframe), the
+// result is styled and animated like the source yet fully editable in
+// Elementor. Interactive / JS-animated parts are preserved verbatim so they
+// keep working.
+//
 // Pipeline (all pure-Sig, powered by the zpm websocket + cdp + elementor stack):
 //   1. launch a headless browser with the remote debugging port  (zpm cdp)
 //   2. attach to its page target over a pure-Sig WebSocket        (zpm websocket)
 //   3. navigate to the URL and wait for load                      (zpm cdp)
-//   4. evaluate the in-page extractor, which builds the Elementor
-//      content array from computed styles + geometry + text + images
+//   4. evaluate the in-page hybrid extractor, which builds the Elementor
+//      content array (native widgets + original classes/ids + folded CSS/JS)
 //                                                                 (zpm dom_import)
 //   5. wrap it in the Elementor document envelope and write .json (zpm dom_import)
 //
@@ -47,20 +56,12 @@ pub fn main(init: std.process.Init) !void {
     var output_path: ?[]const u8 = null;
     var port: u16 = 9222;
     var keep_open = false;
-    // Default is `clone`: a pixel-perfect capture of the rendered page (CSS +
-    // JS + animations) wrapped in one Elementor HTML widget (iframe srcdoc).
-    // `--widgets` opts into the editable widget-decomposition instead.
-    var clone = true;
 
     // Parse: first positional is the URL, second is the output path; flags
-    // --port N, --keep-open, --widgets/--clone may appear anywhere.
+    // --port N and --keep-open may appear anywhere.
     while (args.next()) |raw| {
         if (eqIgnoreCase(raw, "--keep-open")) {
             keep_open = true;
-        } else if (eqIgnoreCase(raw, "--widgets")) {
-            clone = false;
-        } else if (eqIgnoreCase(raw, "--clone")) {
-            clone = true;
         } else if (eqIgnoreCase(raw, "--port")) {
             const v = args.next() orelse usage(io);
             port = parsePort(v) orelse std.process.fatal("bad --port value", .{});
@@ -115,20 +116,19 @@ pub fn main(init: std.process.Init) !void {
         std.process.fatal("navigation failed: {t}", .{err});
 
     // ── 4. Run the extractor in the page. ──
-    // Clone mode captures the whole rendered document (pixel-perfect + JS);
-    // widget mode decomposes it into editable Elementor widgets.
-    const extractor = if (clone) dom_import.clone_extractor_js else dom_import.extractor_js;
-    const content = page.evaluate(io, extractor, &content_buf) catch |err|
+    // The hybrid extractor decomposes the rendered page into native, editable
+    // Elementor widgets that carry the source elements' original CSS classes
+    // and ids, and folds the page's own CSS + JS into the template — so the
+    // widgets are styled and animated exactly like the source, no iframe.
+    // Interactive / JS-animated parts are kept verbatim so they keep working.
+    const content = page.evaluate(io, dom_import.hybrid_extractor_js, &content_buf) catch |err|
         std.process.fatal("extraction failed: {t}", .{err});
     if (content.len == 0) std.process.fatal("extractor returned no content", .{});
 
     // ── 5. Wrap into a full Elementor document and write it. ──
     var title_storage: [256]u8 = undefined;
     const title = deriveTitle(target, &title_storage);
-    const doc = (if (clone)
-        dom_import.wrapHtmlWidget(&doc_buf, title, content)
-    else
-        dom_import.wrap(&doc_buf, title, content)) orelse
+    const doc = dom_import.wrapHybrid(&doc_buf, title, content) orelse
         std.process.fatal("document exceeded output buffer", .{});
 
     var default_out: [4096]u8 = undefined;
@@ -142,8 +142,8 @@ pub fn main(init: std.process.Init) !void {
         std.process.fatal("write error: {t}", .{err});
 
     std.debug.print(
-        "url2elementor: {s} -> {s} ({s} mode, {d} bytes, {d}-byte capture)\n",
-        .{ target, out_path, if (clone) "clone" else "widgets", doc.len, content.len },
+        "url2elementor: {s} -> {s} ({d} bytes, {d}-byte capture)\n",
+        .{ target, out_path, doc.len, content.len },
     );
 }
 
@@ -250,16 +250,16 @@ fn usage(io: std.Io) noreturn {
     _ = io;
     std.debug.print(
         \\usage: url2elementor <https://site> [output.json] [flags]
-        \\  Renders the live page in a headless browser and builds an Elementor
-        \\  template from it, importable via Templates -> Import.
+        \\  Renders the live page in a headless browser and builds an editable
+        \\  Elementor template from it, importable via Templates -> Import.
         \\
-        \\  --clone      (default) pixel-perfect: capture the rendered page (CSS +
-        \\               JS + animations) into one full-width Elementor HTML
-        \\               widget (an <iframe srcdoc>). Looks and behaves like the
-        \\               source, but is one block, not editable widgets.
-        \\  --widgets    editable: decompose the DOM into Elementor widgets
-        \\               (headings, text, buttons, images). Editable, but an
-        \\               approximation — no original CSS/JS/animations.
+        \\  The page is decomposed into native, editable Elementor widgets that
+        \\  carry the source elements' original CSS classes and ids, and the
+        \\  page's own CSS + JS are folded in — so the widgets are styled and
+        \\  animated exactly like the source, with no iframe. Interactive or
+        \\  JS-animated parts (menus, counters, forms) are kept verbatim so they
+        \\  keep working.
+        \\
         \\  --port N     remote debugging port to use (default 9222)
         \\  --keep-open  leave the browser running after extraction (debugging)
         \\
